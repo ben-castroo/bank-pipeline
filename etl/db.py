@@ -106,6 +106,7 @@ def create_tables(engine) -> None:
                 id SERIAL PRIMARY KEY,
                 run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 row_index INTEGER,
+                raw_id INTEGER,
                 reason VARCHAR(60),
                 original_data JSONB
             );
@@ -113,11 +114,15 @@ def create_tables(engine) -> None:
                 id SERIAL PRIMARY KEY,
                 run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                 row_index INTEGER,
+                raw_id INTEGER,
                 event VARCHAR(40),
                 detail TEXT,
                 snapshot JSONB
             );
         """))
+        # Migración: añadir raw_id a tablas existentes si aún no tienen la columna
+        conn.execute(text("ALTER TABLE etl_rejected ADD COLUMN IF NOT EXISTS raw_id INTEGER"))
+        conn.execute(text("ALTER TABLE etl_row_logs ADD COLUMN IF NOT EXISTS raw_id INTEGER"))
     log.info("Tablas verificadas/creadas en Render PostgreSQL.")
 
 
@@ -128,6 +133,7 @@ def create_tables_supabase(engine) -> None:
             CREATE TABLE IF NOT EXISTS bank_clean (
                 id SERIAL PRIMARY KEY,
                 processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                raw_id INTEGER,
                 age INTEGER, job VARCHAR(50), marital VARCHAR(30),
                 education VARCHAR(30), default_credit BOOLEAN, balance INTEGER,
                 housing BOOLEAN, loan BOOLEAN, contact VARCHAR(30), day INTEGER,
@@ -137,4 +143,6 @@ def create_tables_supabase(engine) -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_bank_clean_deposit ON bank_clean (deposit);
         """))
+        # Migración: añadir raw_id a tabla existente si aún no tiene la columna
+        conn.execute(text("ALTER TABLE bank_clean ADD COLUMN IF NOT EXISTS raw_id INTEGER"))
     log.info("Tabla bank_clean verificada/creada en Supabase.")

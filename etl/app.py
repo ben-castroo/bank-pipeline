@@ -122,7 +122,7 @@ def get_granular_logs():
         with engine.connect() as conn:
             total = conn.execute(text("SELECT COUNT(*) FROM etl_row_logs")).scalar() or 0
             rows = conn.execute(text(
-                "SELECT id, row_index, event, detail, snapshot, run_at "
+                "SELECT id, raw_id, row_index, event, detail, snapshot, run_at "
                 "FROM etl_row_logs "
                 "ORDER BY CASE event "
                 "  WHEN 'rechazado' THEN 0 "
@@ -135,6 +135,7 @@ def get_granular_logs():
         for r in rows:
             entry = {
                 "id": r["id"],
+                "raw_id": r["raw_id"],
                 "row_index": r["row_index"],
                 "event": r["event"],
                 "detail": r["detail"],
@@ -234,12 +235,12 @@ def data_rejected():
         engine = get_engine()
         with engine.connect() as conn:
             rows = conn.execute(text(
-                "SELECT id, row_index, reason, original_data "
+                "SELECT id, raw_id, row_index, reason, original_data "
                 "FROM etl_rejected ORDER BY id LIMIT 500"
             )).mappings().all()
         result = []
         for r in rows:
-            entry = {"id": r["id"], "row_index": r["row_index"], "reason": r["reason"]}
+            entry = {"id": r["id"], "raw_id": r["raw_id"], "row_index": r["row_index"], "reason": r["reason"]}
             if r["original_data"]:
                 entry.update(r["original_data"])
             result.append(entry)

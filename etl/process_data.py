@@ -259,7 +259,9 @@ def clean_data(df: pd.DataFrame) -> tuple[pd.DataFrame, dict, list, list]:
 def load_clean_supabase(df: pd.DataFrame, engine) -> None:
     """Carga datos limpios en Supabase (reemplaza todo en cada ejecución)."""
     out = df.copy()
+    out["raw_id"] = (out.index + 1).astype(int)  # referencia a bank_raw.id
     out["processed_at"] = datetime.now(_tz)
+    out = out.reset_index(drop=True)
     with engine.begin() as conn:
         conn.execute(text("TRUNCATE TABLE bank_clean RESTART IDENTITY"))
     out.to_sql("bank_clean", engine, if_exists="append", index=False)
@@ -272,12 +274,13 @@ def load_rejected(rejected: list, engine) -> None:
         for r in rejected:
             conn.execute(
                 text("""
-                    INSERT INTO etl_rejected (run_at, row_index, reason, original_data)
-                    VALUES (:run_at, :row_index, :reason, CAST(:original_data AS jsonb))
+                    INSERT INTO etl_rejected (run_at, row_index, raw_id, reason, original_data)
+                    VALUES (:run_at, :row_index, :raw_id, :reason, CAST(:original_data AS jsonb))
                 """),
                 {
                     "run_at": datetime.now(_tz),
                     "row_index": r["row_index"],
+                    "raw_id": r["row_index"] + 1,
                     "reason": r["reason"],
                     "original_data": json.dumps(r["data"], ensure_ascii=False, default=str),
                 },
@@ -292,13 +295,14 @@ def load_row_logs(row_logs: list, engine) -> None:
             return
         conn.execute(
             text("""
-                INSERT INTO etl_row_logs (run_at, row_index, event, detail, snapshot)
-                VALUES (:run_at, :row_index, :event, :detail, CAST(:snapshot AS jsonb))
+                INSERT INTO etl_row_logs (run_at, row_index, raw_id, event, detail, snapshot)
+                VALUES (:run_at, :row_index, :raw_id, :event, :detail, CAST(:snapshot AS jsonb))
             """),
             [
                 {
                     "run_at": datetime.now(_tz),
                     "row_index": r["row_index"],
+                    "raw_id": r["row_index"] + 1,
                     "event": r["event"],
                     "detail": r["detail"],
                     "snapshot": json.dumps(r["data"], ensure_ascii=False, default=str),
