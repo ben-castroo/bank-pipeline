@@ -1,0 +1,26 @@
+age,job,marital,education,default,balance,housing,loan,contact,day,month,duration,campaign,pdays,previous,poutcome,deposit
+35,technician,single,tertiary,no,1500,yes,no,cellular,10,jun,320,1,-1,0,unknown,yes
+42,management,married,tertiary,no,3200,no,no,cellular,12,jun,480,2,-1,0,unknown,yes
+28,admin.,single,secondary,no,900,yes,no,cellular,15,jun,210,1,-1,0,unknown,no
+50,retired,divorced,primary,no,4100,no,no,telephone,8,jun,560,1,-1,0,unknown,yes
+33,blue-collar,married,secondary,no,250,yes,yes,cellular,20,jun,190,3,-1,0,unknown,no
+35,technician,single,tertiary,no,1500,yes,no,cellular,10,jun,320,1,-1,0,unknown,yes
+35,technician,single,tertiary,no,1500,yes,no,cellular,10,jun,320,1,-1,0,unknown,yes
+15,admin.,single,secondary,no,500,yes,no,cellular,5,jun,300,1,-1,0,unknown,no
+130,retired,married,primary,no,2000,no,no,telephone,7,jun,400,1,-1,0,unknown,yes
+40,technician,married,secondary,no,800,yes,no,cellular,0,jun,350,1,-1,0,unknown,no
+38,services,single,secondary,no,1200,yes,no,cellular,15,jun,-10,1,-1,0,unknown,yes
+29,admin.,married,tertiary,no,600,no,no,cellular,14,jun,280,0,-1,0,unknown,no
+45,blue-collar,married,primary,no,1800,yes,no,cellular,18,jun,410,1,-1,-2,unknown,yes
+52,management,divorced,tertiary,no,5500,no,no,cellular,22,jun,600,2,-1,0,unknown,yes
+27,admin.,single,secondary,no,700,yes,no,cellular,11,jun,195,1,-1,0,unknown,no
+36,technician,widowed,secondary,no,1100,yes,no,cellular,9,jun,330,1,-1,0,unknown,yes
+48,management,married,phd,no,4200,no,no,cellular,16,jun,520,1,-1,0,unknown,yes
+31,admin.,single,secondary,no,850,yes,no,email,13,jun,240,1,-1,0,unknown,no
+44,blue-collar,married,primary,no,1600,yes,no,cellular,21,jun,380,2,-1,0,cancelled,yes
+60,retired,married,primary,no,,no,no,telephone,6,jun,490,1,-1,0,unknown,yes
+55,services,divorced,secondary,no,3100,yes,no,cellular,17,jun,,1,-1,0,unknown,no
+39,admin.,married,secondary,no,1300,no,no,cellular,19,jun,290,1,-1,0,unknown,yes
+46,technician,single,tertiary,no,2800,yes,no,cellular,23,jun,445,1,-1,0,unknown,no
+58,retired,married,primary,no,6000,no,no,telephone,3,jun,700,1,-1,0,unknown,yes
+30,  ADMIN.  ,married,Secondary,no,950,yes,no,cellular,24,jun,260,1,-1,0,unknown,no
