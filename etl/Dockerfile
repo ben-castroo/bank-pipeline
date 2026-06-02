@@ -6,6 +6,7 @@ WORKDIR /app
 COPY etl/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+COPY etl/db.py .
 COPY etl/process_data.py .
 
 # CSV eliminado del contenedor: se carga dinámicamente desde el dashboard
