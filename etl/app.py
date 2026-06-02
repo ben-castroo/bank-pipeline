@@ -4,20 +4,23 @@ y expone endpoints para monitoreo y ejecución manual.
 """
 import os
 import threading
-from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from flask import Flask, jsonify
 
-from process_data import get_engine, main as run_etl
+from process_data import TZ_NAME, get_engine, log, main as run_etl
 
 app = Flask(__name__)
+_tz = ZoneInfo(TZ_NAME)
 
-_status = {"state": "pending", "last_run": None, "error": None}
+_status = {"state": "pending", "last_run": None, "error": None, "timezone": TZ_NAME}
 
 
 def _run_etl_background():
+    from datetime import datetime
     _status["state"] = "running"
-    _status["last_run"] = datetime.now(timezone.utc).isoformat()
+    _status["last_run"] = datetime.now(_tz).isoformat()
+    log.info("ETL disparado desde Web Service (tz=%s)", TZ_NAME)
     try:
         run_etl()
         _status["state"] = "success"

@@ -1,16 +1,44 @@
 """
-ETL Bank Marketing: lectura → validación → limpieza → PostgreSQL (raw + clean).
+ETL Bank Marketing: lectura → validación → limpieza → PostgreSQL (raw + clean) + Supabase (clean).
 """
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 from sqlalchemy import create_engine, text
+
+# ---------------------------------------------------------------------------
+# Logger con zona horaria configurable (por defecto UTC)
+# ---------------------------------------------------------------------------
+TZ_NAME = os.getenv("TZ", "UTC")
+_tz = ZoneInfo(TZ_NAME)
+
+
+class _TZFormatter(logging.Formatter):
+    """Formateador que incluye la zona horaria en cada mensaje."""
+
+    def formatTime(self, record, datefmt=None):  # noqa: N802
+        dt = datetime.fromtimestamp(record.created, tz=_tz)
+        if datefmt:
+            return dt.strftime(datefmt)
+        return dt.strftime("%Y-%m-%dT%H:%M:%S %Z%z")
+
+
+_handler = logging.StreamHandler(sys.stdout)
+_handler.setFormatter(
+    _TZFormatter(fmt="%(asctime)s [%(levelname)s] %(message)s")
+)
+log = logging.getLogger("etl")
+log.setLevel(logging.INFO)
+log.addHandler(_handler)
+log.propagate = False
 
 EXPECTED_COLUMNS = [
     "age",
@@ -95,6 +123,19 @@ def get_engine():
     )
 
 
+def get_supabase_engine():
+    """Retorna engine hacia Supabase usando SUPABASE_URL.
+    Formato esperado: postgresql://user:pass@host:5432/postgres
+    """
+    url = os.getenv("SUPABASE_URL")
+    if not url:
+        return None
+    url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+    if "sslmode" not in url:
+        url += "?sslmode=require"
+    return create_engine(url)
+
+
 def create_tables(engine) -> None:
     """Crea las tablas si no existen (Opción B: sin init.sql externo)."""
     with engine.begin() as conn:
@@ -132,7 +173,26 @@ def create_tables(engine) -> None:
                 payload JSONB NOT NULL
             );
         """))
-    print("Tablas verificadas/creadas correctamente.")
+    log.info("Tablas verificadas/creadas en Render PostgreSQL.")
+
+
+def create_tables_supabase(engine) -> None:
+    """Crea bank_clean en Supabase si no existe."""
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS bank_clean (
+                id SERIAL PRIMARY KEY,
+                processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                age INTEGER, job VARCHAR(50), marital VARCHAR(30),
+                education VARCHAR(30), default_credit BOOLEAN, balance INTEGER,
+                housing BOOLEAN, loan BOOLEAN, contact VARCHAR(30), day INTEGER,
+                month VARCHAR(10), duration INTEGER, campaign INTEGER,
+                pdays INTEGER, previous INTEGER, poutcome VARCHAR(30),
+                deposit BOOLEAN
+            );
+            CREATE INDEX IF NOT EXISTS idx_bank_clean_deposit ON bank_clean (deposit);
+        """))
+    log.info("Tabla bank_clean verificada/creada en Supabase.")
 
 
 def resolve_data_file() -> Path:
@@ -173,6 +233,7 @@ def validate_structure(df: pd.DataFrame) -> None:
 def load_raw(df: pd.DataFrame, engine) -> None:
     raw = df.copy()
     raw = raw.rename(columns={"default": "default_credit"})
+    raw["loaded_at"] = datetime.now(_tz).isoformat()
     raw = raw.astype(str)
     with engine.begin() as conn:
         conn.execute(text("TRUNCATE TABLE bank_raw RESTART IDENTITY"))
@@ -235,7 +296,16 @@ def clean_data(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
 
 def load_clean(df: pd.DataFrame, engine) -> None:
     out = df.copy()
-    out["processed_at"] = datetime.now(timezone.utc)
+    out["processed_at"] = datetime.now(_tz)
+    with engine.begin() as conn:
+        conn.execute(text("TRUNCATE TABLE bank_clean RESTART IDENTITY"))
+    out.to_sql("bank_clean", engine, if_exists="append", index=False)
+
+
+def load_clean_supabase(df: pd.DataFrame, engine) -> None:
+    """Carga datos limpios en Supabase (reemplaza todo en cada ejecución)."""
+    out = df.copy()
+    out["processed_at"] = datetime.now(_tz)
     with engine.begin() as conn:
         conn.execute(text("TRUNCATE TABLE bank_clean RESTART IDENTITY"))
     out.to_sql("bank_clean", engine, if_exists="append", index=False)
@@ -286,32 +356,50 @@ def write_report(stats: dict, source_file: str, engine) -> None:
 
 
 def main() -> None:
+    log.info("=== ETL Bank Marketing iniciado ===")
+    log.info("Zona horaria activa: %s", TZ_NAME)
+
     source = resolve_data_file()
-    print(f"Leyendo: {source}")
+    log.info("Archivo fuente: %s", source)
 
     df = read_source(source)
     validate_structure(df)
     initial_rows = len(df)
+    log.info("Registros leídos: %d", initial_rows)
 
     engine = get_engine()
     create_tables(engine)
     load_raw(df, engine)
-    print(f"Cargados {initial_rows} registros en bank_raw")
+    log.info("[Render PG] bank_raw cargado: %d filas (loaded_at en %s)", initial_rows, TZ_NAME)
 
     clean_df, stats = clean_data(df)
+    log.info("Limpieza completada: %d → %d filas", initial_rows, stats["registros_finales"])
+    log.info("  duplicados eliminados   : %d", stats["duplicados_eliminados"])
+    log.info("  filas fuera de rango    : %d", stats["filas_fuera_de_rango"])
+    log.info("  filas categoría inválida: %d", stats["filas_categoria_invalida"])
+    log.info("  filas nulos críticos    : %d", stats["filas_con_nulos_criticos"])
+
     load_clean(clean_df, engine)
+    log.info("[Render PG] bank_clean cargado: %d filas (processed_at en %s)", stats["registros_finales"], TZ_NAME)
+
+    # --- Supabase (opcional, si SUPABASE_URL está definida) ---
+    supabase_engine = get_supabase_engine()
+    if supabase_engine:
+        create_tables_supabase(supabase_engine)
+        load_clean_supabase(clean_df, supabase_engine)
+        log.info("[Supabase] bank_clean cargado: %d filas", stats["registros_finales"])
+    else:
+        log.info("[Supabase] SUPABASE_URL no configurada, omitiendo carga.")
 
     stats["archivo_origen"] = str(source.name)
     write_report(stats, str(source), engine)
 
-    print("ETL finalizado correctamente.")
-    print(f"  Raw:   {initial_rows} filas")
-    print(f"  Clean: {stats['registros_finales']} filas")
+    log.info("=== ETL finalizado correctamente ===")
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as exc:
-        print(f"ERROR ETL: {exc}", file=sys.stderr)
+        log.exception("ERROR ETL: %s", exc)
         sys.exit(1)
