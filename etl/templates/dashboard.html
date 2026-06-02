@@ -22,6 +22,11 @@
           class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg shadow transition">
           ▶ Ejecutar ETL
         </button>
+        <button onclick="truncateTables()"
+          class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-lg shadow transition"
+          title="Vacía bank_raw, bank_clean y etl_reports en Render y Supabase">
+          🗑 Vaciar tablas
+        </button>
       </div>
     </div>
 
@@ -72,8 +77,12 @@
       <div class="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col">
         <div class="flex items-center justify-between px-5 py-3 border-b border-slate-100">
           <h2 class="font-semibold text-slate-700">Logs de procesamiento</h2>
-          <button onclick="loadLogs()"
-            class="text-xs text-indigo-500 hover:underline">↻ Actualizar</button>
+          <div class="flex items-center gap-3">
+            <span class="flex items-center gap-1 text-xs text-emerald-600">
+              <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>en vivo
+            </span>
+            <button onclick="loadLogs()" class="text-xs text-indigo-500 hover:underline">↻ Actualizar</button>
+          </div>
         </div>
         <div id="log-container"
           class="font-mono text-xs p-4 h-80 overflow-y-auto bg-slate-900 rounded-b-xl leading-5 space-y-0.5">
@@ -92,7 +101,12 @@
             class="px-5 py-3 text-sm font-medium text-slate-500 hover:text-slate-700 border-b-2 border-transparent">
             Datos limpios
           </button>
-          <span class="ml-auto self-center px-4 text-xs text-slate-400">últimos 50 registros</span>
+          <span class="ml-auto self-center px-4 flex items-center gap-2 text-xs text-slate-400">
+            <span class="flex items-center gap-1 text-emerald-600">
+              <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>en vivo
+            </span>
+            últimos 50 registros
+          </span>
         </div>
         <div class="overflow-auto h-80">
           <table class="w-full text-xs text-left">
@@ -269,33 +283,53 @@
       } catch(e) { alert('No se pudo iniciar el ETL'); }
       btn.disabled = false;
     }
-    async function loadCurrentFile() {
-      try {
-        const data = await fetch('/current-file').then(r => r.json());
-        const src = document.getElementById('active-file-source');
-        const runBtn = document.getElementById('run-btn');
-        if (!data.file || data.source === 'ninguno') {
-          document.getElementById('active-file-name').textContent = 'Ninguno';
-          src.textContent = 'requerido';
-          src.className = 'ml-2 px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-600';
-          runBtn.disabled = true;
-          runBtn.title = 'Sube un archivo primero';
-        } else {
-          const kb = (data.bytes / 1024).toFixed(1);
-          document.getElementById('active-file-name').textContent = `${data.file} (${kb} KB)`;
-          src.textContent = 'subido';
-          src.className = 'ml-2 px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700';
-          runBtn.disabled = false;
-          runBtn.title = '';
-        }
-      } catch(e) {}
+    // ── Live refresh (siempre activo) ────────────────────────────────────────
+    let liveInterval = null;
+    function startLiveRefresh() {
+      if (liveInterval) return;
+      liveInterval = setInterval(() => {
+        loadLogs();
+        loadTable(currentTab);
+      }, 5000);
     }
+
+    // ── Vaciar tablas ─────────────────────────────────────────────────────────
+    async function truncateTables() {
+      if (!confirm('¿Seguro? Esto eliminará TODOS los datos de bank_raw, bank_clean y etl_reports en Render y Supabase. Esta acción no se puede deshacer.')) return;
+      try {
+        const res = await fetch('/truncate', { method: 'POST' });
+        const data = await res.json();
+        const msgs = Object.entries(data).map(([k,v]) => `${k}: ${v}`).join(' · ');
+        showToast(`Tablas vaciadas → ${msgs}`, 'success');
+        loadTable(currentTab);
+        loadReport();
+        document.getElementById('metrics-grid').innerHTML = '';
+      } catch(e) {
+        showToast('Error al vaciar tablas', 'error');
+      }
+    }
+
+    // ── Toast ─────────────────────────────────────────────────────────────────
+    function showToast(msg, type = 'success') {
+      const t = document.createElement('div');
+      const colors = type === 'error'
+        ? 'bg-red-600 text-white'
+        : type === 'warning'
+        ? 'bg-amber-500 text-white'
+        : 'bg-emerald-600 text-white';
+      t.className = `fixed bottom-5 right-5 z-50 px-5 py-3 rounded-xl shadow-lg text-sm font-medium ${colors} transition-opacity duration-500`;
+      t.textContent = msg;
+      document.body.appendChild(t);
+      setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 500); }, 3500);
+    }
+
     // ── Init ─────────────────────────────────────────────────────────────────
     loadStatus();
     loadReport();
     loadLogs();
     loadTable('raw');
     loadCurrentFile();
+    startLiveRefresh();
 
     // ── Upload ───────────────────────────────────────────────────────────────
     let _pendingFile = null;

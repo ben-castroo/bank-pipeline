@@ -191,6 +191,44 @@ def data_clean():
         return jsonify({"error": str(exc)}), 500
 
 
+@app.post("/truncate")
+def truncate_tables():
+    """Vacía las tablas de datos en Render PG y Supabase."""
+    from process_data import get_supabase_engine
+    results = {}
+
+    # ── Render PostgreSQL ────────────────────────────────────────────────────
+    try:
+        engine = get_engine()
+        with engine.begin() as conn:
+            conn.execute(text(
+                "TRUNCATE TABLE bank_raw, bank_clean, etl_reports RESTART IDENTITY CASCADE"
+            ))
+        results["render"] = "ok"
+        log.warning("Tablas vaciadas en Render PG: bank_raw, bank_clean, etl_reports")
+    except Exception as exc:
+        results["render"] = str(exc)
+        log.error("Error al vaciar tablas en Render PG: %s", exc)
+
+    # ── Supabase (opcional) ──────────────────────────────────────────────────
+    supa_engine = get_supabase_engine()
+    if supa_engine is not None:
+        try:
+            with supa_engine.begin() as conn:
+                conn.execute(text(
+                    "TRUNCATE TABLE bank_clean RESTART IDENTITY CASCADE"
+                ))
+            results["supabase"] = "ok"
+            log.warning("Tabla bank_clean vaciada en Supabase")
+        except Exception as exc:
+            results["supabase"] = str(exc)
+            log.error("Error al vaciar tabla en Supabase: %s", exc)
+    else:
+        results["supabase"] = "no configurado"
+
+    return jsonify(results), 200
+
+
 if __name__ == "__main__":
     threading.Thread(target=_run_etl_background, daemon=True).start()
     port = int(os.environ.get("PORT", 8000))
