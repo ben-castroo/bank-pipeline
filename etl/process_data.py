@@ -260,6 +260,7 @@ def load_clean_supabase(df: pd.DataFrame, engine) -> None:
     """Carga datos limpios en Supabase (reemplaza todo en cada ejecución)."""
     out = df.copy()
     out["raw_id"] = (out.index + 1).astype(int)  # referencia a bank_raw.id
+    out["id"] = out["raw_id"]                     # conservar el mismo id en cada etapa
     out["processed_at"] = datetime.now(_tz)
     out = out.reset_index(drop=True)
     with engine.begin() as conn:
@@ -274,10 +275,11 @@ def load_rejected(rejected: list, engine) -> None:
         for r in rejected:
             conn.execute(
                 text("""
-                    INSERT INTO etl_rejected (run_at, row_index, raw_id, reason, original_data)
-                    VALUES (:run_at, :row_index, :raw_id, :reason, CAST(:original_data AS jsonb))
+                    INSERT INTO etl_rejected (id, run_at, row_index, raw_id, reason, original_data)
+                    VALUES (:id, :run_at, :row_index, :raw_id, :reason, CAST(:original_data AS jsonb))
                 """),
                 {
+                    "id": r["row_index"] + 1,
                     "run_at": datetime.now(_tz),
                     "row_index": r["row_index"],
                     "raw_id": r["row_index"] + 1,
