@@ -1,78 +1,75 @@
 # Bank Marketing — Pipeline ETL
 
-Pipeline de **procesamiento y limpieza** de datos para campañas de depósitos a plazo.  
-Fase actual: ETL → PostgreSQL (`bank_raw` + `bank_clean`). El modelo de ML va en una fase posterior.
+Pipeline de procesamiento y limpieza de datos para campañas de depósitos a plazo,  
+desplegado en **Render** (Web Service + PostgreSQL) con **Supabase** como destino de datos limpios.
 
 ## Arquitectura
 
 ```
-Excel/CSV  →  Contenedor ETL (Python)  →  PostgreSQL
-                  │                           ├── bank_raw   (origen)
-                  │                           └── bank_clean (tipado + validado)
+CSV / Excel
+    │
+    ▼
+Flask Web Service (Render)
+    │
+    ├─► bank_raw        (Render PostgreSQL — datos originales)
+    ├─► etl_reports     (Render PostgreSQL — métricas por ejecución)
+    ├─► etl_rejected    (Render PostgreSQL — filas descartadas)
+    ├─► etl_row_logs    (Render PostgreSQL — log granular por fila)
+    └─► bank_clean      (Supabase — datos limpios listos para análisis)
 ```
 
-**Por qué no API todavía:** en esta fase el dato entra por archivo batch. Una API tiene sentido cuando exista captura continua o un servicio de scoring en producción.
-
-## Requisitos
-
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows)
-- Archivo de datos en `data/` con nombre `bank.csv` o `bank.xlsx`
-
-Columnas esperadas (17):
-
-`age, job, marital, education, default, balance, housing, loan, contact, day, month, duration, campaign, pdays, previous, poutcome, deposit`
-
-## Uso rápido
-
-1. Coloca tu dataset en `data/bank.csv` (o `bank.xlsx`).
-2. Desde esta carpeta:
-
-```bash
-docker compose up --build
-```
-
-3. Verificar en PostgreSQL:
-
-```bash
-docker exec -it bank_postgres psql -U postgres -d bankdb -c "SELECT COUNT(*) FROM bank_raw;"
-docker exec -it bank_postgres psql -U postgres -d bankdb -c "SELECT COUNT(*) FROM bank_clean;"
-docker exec -it bank_postgres psql -U postgres -d bankdb -c "SELECT * FROM bank_clean LIMIT 5;"
-```
-
-4. Reporte de calidad generado por el ETL: `reports/quality_report.json`
-
-## Estructura
+## Estructura del proyecto
 
 ```
 bank-pipeline/
-├── docker-compose.yml
-├── data/                 # bank.csv o bank.xlsx (no versionar datos reales)
 ├── etl/
-│   ├── Dockerfile
+│   ├── Dockerfile          ← imagen del Web Service
 │   ├── requirements.txt
-│   └── process_data.py
-├── sql/
-│   └── init.sql
-└── reports/              # salida del ETL (montado como volumen)
+│   ├── db.py               ← conexiones (Render PG + Supabase) y DDL
+│   ├── process_data.py     ← pipeline ETL completo
+│   ├── app.py              ← Flask: dashboard + API endpoints
+│   └── templates/
+│       └── dashboard.html
+├── data/
+│   ├── bank_demo.csv           ← dataset de demo (25 filas con errores)
+│   └── bank_estructura_test.csv ← CSV con columnas inválidas para probar validación
+├── docs/
+│   ├── despliegue.md       ← guía paso a paso Render + Supabase
+│   ├── procesamiento.md    ← documentación detallada de process_data.py
+│   └── resumen.md          ← resumen de validaciones y reglas de limpieza
+├── docker-compose.yml      ← entorno local de desarrollo
+└── README.md
 ```
 
-## Para el informe de evaluación
+## Columnas esperadas (17)
 
-Documentar explícitamente:
+`age, job, marital, education, default, balance, housing, loan, contact, day, month, duration, campaign, pdays, previous, poutcome, deposit`
 
-| Control | Qué hace |
-|--------|----------|
-| Estructura | Valida las 17 columnas requeridas |
-| Raw layer | Conserva datos originales en `bank_raw` |
-| Duplicados | Elimina filas repetidas |
-| Tipos | Numéricos, booleanos yes/no, categorías |
-| Rangos | Edad 18–100, día 1–31, pdays ≥ -1, etc. |
-| Categorías | Listas blancas (marital, education, contact, poutcome) |
-| Nulos | `dropna` en columnas críticas |
-| Trazabilidad | `quality_report.json` con conteos antes/después |
+## Despliegue
 
-## Siguiente fase (fuera de este repo por ahora)
+Ver [docs/despliegue.md](docs/despliegue.md) para la guía completa de Render + Supabase.
 
-- Feature engineering (one-hot, orden de meses, etc.) → tabla `bank_features` o notebook
-- Modelo (scikit-learn / XGBoost) entrenado sobre `bank_clean`
-- API FastAPI opcional para carga y/o scoring
+## Desarrollo local
+
+```bash
+# Requiere Docker Desktop
+docker compose up --build
+```
+
+El servicio queda disponible en `http://localhost:8000`.  
+Variables de entorno configuradas en `docker-compose.yml` (BD local PostgreSQL).
+
+## Validaciones aplicadas
+
+| Paso | Descripción |
+|------|-------------|
+| Estructura | Verifica las 17 columnas exactas |
+| Deduplicación | Elimina copias exactas (conserva la primera) |
+| Normalización | Texto a minúsculas, espacios eliminados, vacíos → `unknown` |
+| Rangos | `age` 18–100, `day` 1–31, `duration ≥ 0`, `campaign ≥ 1`, etc. |
+| Categorías | Listas blancas para `job`, `marital`, `education`, `contact`, `poutcome` |
+| Binarias | `yes/no` → `True/False`; valores inválidos → `NULL` |
+| Nulos críticos | Elimina filas con nulos en campos obligatorios |
+
+Ver [docs/resumen.md](docs/resumen.md) para el detalle completo.
+

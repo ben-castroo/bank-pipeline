@@ -10,29 +10,33 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./sql/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d bankdb"]
       interval: 5s
       timeout: 5s
       retries: 10
 
-  etl:
-    build: ./etl
-    container_name: bank_etl
+  web:
+    build:
+      context: .
+      dockerfile: etl/Dockerfile
+    container_name: bank_web
     depends_on:
       postgres:
         condition: service_healthy
+    ports:
+      - "8000:8000"
     volumes:
       - ./data:/data:ro
       - ./reports:/reports
     environment:
-      DB_USER: postgres
-      DB_PASSWORD: postgres
       DB_HOST: postgres
       DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: postgres
       DB_NAME: bankdb
-      DATA_FILE: /data/bank.csv
+      PORT: "8000"
+      # SUPABASE_URL: "postgresql://postgres.[REF]:[PASS]@aws-0-[region].pooler.supabase.com:6543/postgres"
 
 volumes:
   postgres_data:
