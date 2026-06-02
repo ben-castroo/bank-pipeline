@@ -339,7 +339,7 @@ def write_report(stats: dict, source_file: str, engine) -> None:
                     (NOW(), :source_file, :registros_iniciales,
                      :duplicados_eliminados, :filas_fuera_de_rango,
                      :filas_categoria_invalida, :filas_con_nulos_criticos,
-                     :registros_finales, :payload::jsonb)
+                     :registros_finales, CAST(:payload AS jsonb))
             """),
             {
                 "source_file": source_file,
