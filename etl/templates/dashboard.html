@@ -386,7 +386,8 @@
             '<tr><td class="px-4 py-8 text-slate-400 text-center" colspan="99">Sin datos aún.</td></tr>';
           return;
         }
-        const cols = Object.keys(rows[0]);
+        const _keys = Object.keys(rows[0]);
+        const cols = _keys.includes('id') ? ['id', ..._keys.filter(c => c !== 'id')] : _keys;
         document.getElementById('table-head').innerHTML =
           '<tr>' + cols.map(c =>
             `<th class="px-3 py-2 font-medium whitespace-nowrap">${esc(c)}</th>`
