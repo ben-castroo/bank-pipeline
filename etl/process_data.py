@@ -172,6 +172,13 @@ def create_tables(engine) -> None:
                 registros_finales INTEGER,
                 payload JSONB NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS etl_rejected (
+                id SERIAL PRIMARY KEY,
+                run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                row_index INTEGER,
+                reason VARCHAR(60),
+                original_data JSONB
+            );
         """))
     log.info("Tablas verificadas/creadas en Render PostgreSQL.")
 
@@ -240,12 +247,32 @@ def load_raw(df: pd.DataFrame, engine) -> None:
     raw.to_sql("bank_raw", engine, if_exists="append", index=False)
 
 
-def clean_data(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+def _row_to_dict(row) -> dict:
+    """Convierte una fila de DataFrame a dict serializable en JSON."""
+    result = {}
+    for k, v in row.items():
+        try:
+            if pd.isna(v):
+                result[k] = None
+                continue
+        except (TypeError, ValueError):
+            pass
+        result[k] = v.item() if hasattr(v, "item") else v
+    return result
+
+
+def clean_data(df: pd.DataFrame) -> tuple[pd.DataFrame, dict, list]:
+    rejected: list[dict] = []
     stats: dict = {}
     stats["registros_iniciales"] = len(df)
 
     df = df.rename(columns={"default": "default_credit"})
-    stats["duplicados_eliminados"] = int(df.duplicated().sum())
+
+    # ── Duplicados ───────────────────────────────────────────────────────────
+    dup_mask = df.duplicated()
+    for i, row in df[dup_mask].iterrows():
+        rejected.append({"row_index": int(i), "reason": "duplicado", "data": _row_to_dict(row)})
+    stats["duplicados_eliminados"] = int(dup_mask.sum())
     df = df.drop_duplicates()
 
     for col in TEXT_COLUMNS:
@@ -255,43 +282,53 @@ def clean_data(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     for col in NUMERIC_COLUMNS:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
+    # ── Fuera de rango ───────────────────────────────────────────────────────
+    range_mask = (
+        (df["age"] >= 18) & (df["age"] <= 100)
+        & (df["day"] >= 1) & (df["day"] <= 31)
+        & (df["duration"] >= 0)
+        & (df["campaign"] >= 1)
+        & (df["previous"] >= 0)
+        & (df["pdays"] >= -1)
+    )
+    for i, row in df[~range_mask].iterrows():
+        rejected.append({"row_index": int(i), "reason": "fuera_de_rango", "data": _row_to_dict(row)})
     before_ranges = len(df)
-    df = df[(df["age"] >= 18) & (df["age"] <= 100)]
-    df = df[(df["day"] >= 1) & (df["day"] <= 31)]
-    df = df[df["duration"] >= 0]
-    df = df[df["campaign"] >= 1]
-    df = df[df["previous"] >= 0]
-    df = df[df["pdays"] >= -1]
+    df = df[range_mask]
     stats["filas_fuera_de_rango"] = before_ranges - len(df)
 
     for col in BINARY_COLUMNS:
         df[col] = df[col].map({"yes": True, "no": False})
 
+    # ── Categoría inválida ───────────────────────────────────────────────────
+    cat_mask = (
+        df["marital"].isin(VALID_MARITAL)
+        & df["education"].isin(VALID_EDUCATION)
+        & df["contact"].isin(VALID_CONTACT)
+        & df["poutcome"].isin(VALID_POUTCOME)
+        & df["job"].isin(VALID_JOBS)
+    )
+    for i, row in df[~cat_mask].iterrows():
+        rejected.append({"row_index": int(i), "reason": "categoria_invalida", "data": _row_to_dict(row)})
     before_cat = len(df)
-    df = df[df["marital"].isin(VALID_MARITAL)]
-    df = df[df["education"].isin(VALID_EDUCATION)]
-    df = df[df["contact"].isin(VALID_CONTACT)]
-    df = df[df["poutcome"].isin(VALID_POUTCOME)]
-    df = df[df["job"].isin(VALID_JOBS)]
+    df = df[cat_mask]
     stats["filas_categoria_invalida"] = before_cat - len(df)
 
-    null_before = len(df)
+    # ── Nulos críticos ───────────────────────────────────────────────────────
     critical = [
-        "age",
-        "balance",
-        "day",
-        "duration",
-        "campaign",
-        "pdays",
-        "previous",
-        "deposit",
+        "age", "balance", "day", "duration",
+        "campaign", "pdays", "previous", "deposit",
     ]
+    null_mask = df[critical].isna().any(axis=1)
+    for i, row in df[null_mask].iterrows():
+        rejected.append({"row_index": int(i), "reason": "nulo_critico", "data": _row_to_dict(row)})
+    null_before = len(df)
     df = df.dropna(subset=critical)
     stats["filas_con_nulos_criticos"] = null_before - len(df)
     stats["registros_finales"] = len(df)
     stats["nulos_por_columna"] = df.isnull().sum().to_dict()
 
-    return df, stats
+    return df, stats, rejected
 
 
 def load_clean(df: pd.DataFrame, engine) -> None:
@@ -309,6 +346,25 @@ def load_clean_supabase(df: pd.DataFrame, engine) -> None:
     with engine.begin() as conn:
         conn.execute(text("TRUNCATE TABLE bank_clean RESTART IDENTITY"))
     out.to_sql("bank_clean", engine, if_exists="append", index=False)
+
+
+def load_rejected(rejected: list, engine) -> None:
+    """Guarda las filas rechazadas en etl_rejected (reemplaza en cada ejecución)."""
+    with engine.begin() as conn:
+        conn.execute(text("TRUNCATE TABLE etl_rejected RESTART IDENTITY"))
+        for r in rejected:
+            conn.execute(
+                text("""
+                    INSERT INTO etl_rejected (run_at, row_index, reason, original_data)
+                    VALUES (:run_at, :row_index, :reason, CAST(:original_data AS jsonb))
+                """),
+                {
+                    "run_at": datetime.now(_tz),
+                    "row_index": r["row_index"],
+                    "reason": r["reason"],
+                    "original_data": json.dumps(r["data"], ensure_ascii=False, default=str),
+                },
+            )
 
 
 def write_report(stats: dict, source_file: str, engine) -> None:
@@ -372,7 +428,7 @@ def main() -> None:
     load_raw(df, engine)
     log.info("[Render PG] bank_raw cargado: %d filas (loaded_at en %s)", initial_rows, TZ_NAME)
 
-    clean_df, stats = clean_data(df)
+    clean_df, stats, rejected = clean_data(df)
     log.info("Limpieza completada: %d → %d filas", initial_rows, stats["registros_finales"])
     log.info("  duplicados eliminados   : %d", stats["duplicados_eliminados"])
     log.info("  filas fuera de rango    : %d", stats["filas_fuera_de_rango"])
@@ -381,6 +437,9 @@ def main() -> None:
 
     load_clean(clean_df, engine)
     log.info("[Render PG] bank_clean cargado: %d filas (processed_at en %s)", stats["registros_finales"], TZ_NAME)
+
+    load_rejected(rejected, engine)
+    log.info("[Render PG] etl_rejected: %d filas rechazadas registradas", len(rejected))
 
     # --- Supabase (opcional, si SUPABASE_URL está definida) ---
     supabase_engine = get_supabase_engine()

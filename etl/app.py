@@ -191,6 +191,26 @@ def data_clean():
         return jsonify({"error": str(exc)}), 500
 
 
+@app.get("/data/rejected")
+def data_rejected():
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT row_index, reason, original_data "
+                "FROM etl_rejected ORDER BY id LIMIT 500"
+            )).mappings().all()
+        result = []
+        for r in rows:
+            entry = {"row_index": r["row_index"], "reason": r["reason"]}
+            if r["original_data"]:
+                entry.update(r["original_data"])
+            result.append(entry)
+        return jsonify(result), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.post("/truncate")
 def truncate_tables():
     """Vacía las tablas de datos en Render PG y Supabase."""
@@ -202,10 +222,10 @@ def truncate_tables():
         engine = get_engine()
         with engine.begin() as conn:
             conn.execute(text(
-                "TRUNCATE TABLE bank_raw, bank_clean, etl_reports RESTART IDENTITY CASCADE"
+                "TRUNCATE TABLE bank_raw, bank_clean, etl_reports, etl_rejected RESTART IDENTITY CASCADE"
             ))
         results["render"] = "ok"
-        log.warning("Tablas vaciadas en Render PG: bank_raw, bank_clean, etl_reports")
+        log.warning("Tablas vaciadas en Render PG: bank_raw, bank_clean, etl_reports, etl_rejected")
     except Exception as exc:
         results["render"] = str(exc)
         log.error("Error al vaciar tablas en Render PG: %s", exc)

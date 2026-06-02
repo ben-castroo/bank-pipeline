@@ -101,6 +101,11 @@
             class="px-5 py-3 text-sm font-medium text-slate-500 hover:text-slate-700 border-b-2 border-transparent">
             Datos limpios
           </button>
+          <button id="tab-rejected" onclick="switchTab('rejected')"
+            class="px-5 py-3 text-sm font-medium text-slate-500 hover:text-slate-700 border-b-2 border-transparent flex items-center gap-1.5">
+            Rechazados
+            <span id="rejected-count" class="hidden px-1.5 py-0.5 rounded-full text-xs bg-red-100 text-red-600 font-semibold"></span>
+          </button>
           <span class="ml-auto self-center px-4 flex items-center gap-2 text-xs text-slate-400">
             <span class="flex items-center gap-1 text-emerald-600">
               <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>en vivo
@@ -150,6 +155,13 @@
       { key: 'filas_con_nulos_criticos', label: 'Nulos críticos', warn: true  },
       { key: 'registros_finales',        label: 'Finales',        warn: false },
     ];
+
+    const REASON_COLOR = {
+      'duplicado':          'bg-amber-100 text-amber-700',
+      'fuera_de_rango':     'bg-orange-100 text-orange-700',
+      'categoria_invalida': 'bg-red-100 text-red-700',
+      'nulo_critico':       'bg-purple-100 text-purple-700',
+    };
 
     function esc(s) {
       return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -254,12 +266,13 @@
 
     function switchTab(tab) {
       currentTab = tab;
-      ['raw', 'clean'].forEach(t => {
+      ['raw', 'clean', 'rejected'].forEach(t => {
         const btn = document.getElementById(`tab-${t}`);
+        const extra = t === 'rejected' ? ' flex items-center gap-1.5' : '';
         if (t === tab) {
-          btn.className = 'px-5 py-3 text-sm font-semibold border-b-2 border-indigo-500 text-indigo-600';
+          btn.className = `px-5 py-3 text-sm font-semibold border-b-2 border-indigo-500 text-indigo-600${extra}`;
         } else {
-          btn.className = 'px-5 py-3 text-sm font-medium text-slate-500 hover:text-slate-700 border-b-2 border-transparent';
+          btn.className = `px-5 py-3 text-sm font-medium text-slate-500 hover:text-slate-700 border-b-2 border-transparent${extra}`;
         }
       });
       loadTable(tab);
