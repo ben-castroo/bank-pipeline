@@ -101,18 +101,29 @@
           <span class="text-slate-400">Cargando...</span>
         </div>
         <!-- Contenedor Granulares -->
-        <div id="log-granular-container" class="hidden h-80 overflow-auto rounded-b-xl">
+        <div id="log-granular-container" class="hidden h-80 overflow-auto rounded-b-xl flex flex-col">
+          <!-- Filtros + info -->
+          <div class="flex items-center gap-2 px-3 py-2 border-b border-slate-100 bg-slate-50 sticky top-0 z-10">
+            <span class="text-xs text-slate-500 font-medium">Filtro:</span>
+            <button class="granular-filter-btn px-2 py-0.5 rounded text-xs bg-indigo-600 text-white transition"
+              onclick="setGranularFilter('todos', this)">Todos</button>
+            <button class="granular-filter-btn px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-600 transition"
+              onclick="setGranularFilter('problemas', this)">Solo problemas</button>
+            <span id="granular-info" class="ml-auto text-xs text-slate-400"></span>
+          </div>
+          <div class="overflow-auto flex-1">
           <table class="w-full text-xs text-left">
             <thead class="bg-slate-50 text-slate-500 sticky top-0">
               <tr>
                 <th class="px-3 py-2 font-medium">#fila</th>
                 <th class="px-3 py-2 font-medium">Evento</th>
                 <th class="px-3 py-2 font-medium">Detalle</th>
-                <th class="px-3 py-2 font-medium">Datos originales</th>
+                <th class="px-3 py-2 font-medium">Datos</th>
               </tr>
             </thead>
             <tbody id="granular-body" class="divide-y divide-slate-100"></tbody>
           </table>
+          </div>
         </div>
       </div>
 
@@ -264,23 +275,36 @@
 
     // ── Logs granulares ─────────────────────────────────────────────────────────
     const EVENT_COLOR = {
+      'aceptado':         'bg-emerald-100 text-emerald-700',
+      'rechazado':        'bg-red-100 text-red-700',
       'normalizado':      'bg-sky-100 text-sky-700',
       'binario_invalido': 'bg-orange-100 text-orange-700',
     };
 
+    let _granularFilter = 'todos';
+
     async function loadGranularLogs() {
       try {
-        const logs = await fetch('/logs/granular').then(r => r.json());
+        const resp = await fetch('/logs/granular').then(r => r.json());
         const tbody = document.getElementById('granular-body');
         const badge = document.getElementById('granular-count');
-        if (!Array.isArray(logs) || !logs.length) {
+        if (resp.error || !resp.rows || !resp.rows.length) {
           tbody.innerHTML = '<tr><td class="px-4 py-8 text-slate-400 text-center" colspan="4">Sin eventos granulares aún. Ejecuta el ETL primero.</td></tr>';
           badge.classList.add('hidden');
+          document.getElementById('granular-info').textContent = '';
           return;
         }
-        badge.textContent = logs.length;
+        // Filtro local
+        const rows = _granularFilter === 'todos'
+          ? resp.rows
+          : resp.rows.filter(r => r.event !== 'aceptado');
+        badge.textContent = resp.total;
         badge.classList.remove('hidden');
-        tbody.innerHTML = logs.map(r => {
+        const infoEl = document.getElementById('granular-info');
+        infoEl.textContent = resp.shown < resp.total
+          ? `mostrando ${rows.length} de ${resp.total} total (primeros 2000)`
+          : `${rows.length} eventos`;
+        tbody.innerHTML = rows.map(r => {
           const cls = EVENT_COLOR[r.event] ?? 'bg-slate-100 text-slate-600';
           const snapHtml = r.snapshot
             ? `<details class="cursor-pointer"><summary class="text-indigo-500 hover:underline">ver datos</summary>` +
@@ -294,6 +318,15 @@
           </tr>`;
         }).join('');
       } catch(e) {}
+    }
+
+    function setGranularFilter(f, btn) {
+      _granularFilter = f;
+      document.querySelectorAll('.granular-filter-btn').forEach(b =>
+        b.className = b.className.replace('bg-indigo-600 text-white', 'bg-slate-100 text-slate-600')
+      );
+      btn.className = btn.className.replace('bg-slate-100 text-slate-600', 'bg-indigo-600 text-white');
+      loadGranularLogs();
     }
 
     // ── Tabs de logs ───────────────────────────────────────────────────────────────

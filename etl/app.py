@@ -119,9 +119,16 @@ def get_granular_logs():
     try:
         engine = get_engine()
         with engine.connect() as conn:
+            total = conn.execute(text("SELECT COUNT(*) FROM etl_row_logs")).scalar() or 0
             rows = conn.execute(text(
                 "SELECT row_index, event, detail, snapshot, run_at "
-                "FROM etl_row_logs ORDER BY row_index, id LIMIT 1000"
+                "FROM etl_row_logs "
+                "ORDER BY CASE event "
+                "  WHEN 'rechazado' THEN 0 "
+                "  WHEN 'normalizado' THEN 1 "
+                "  WHEN 'binario_invalido' THEN 1 "
+                "  ELSE 2 END, row_index "
+                "LIMIT 2000"
             )).mappings().all()
         result = []
         for r in rows:
@@ -134,7 +141,7 @@ def get_granular_logs():
             if r["snapshot"]:
                 entry["snapshot"] = r["snapshot"]
             result.append(entry)
-        return jsonify(result), 200
+        return jsonify({"total": total, "shown": len(result), "rows": result}), 200
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 

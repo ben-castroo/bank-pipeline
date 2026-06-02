@@ -369,6 +369,22 @@ def clean_data(df: pd.DataFrame) -> tuple[pd.DataFrame, dict, list, list]:
     stats["registros_finales"] = len(df)
     stats["nulos_por_columna"] = df.isnull().sum().to_dict()
 
+    # ── Registro final por fila: aceptado o rechazado ───────────────────────────
+    for i, row in df.iterrows():
+        row_logs.append({
+            "row_index": int(i),
+            "event": "aceptado",
+            "detail": "fila procesada y cargada",
+            "data": _row_to_dict(row),
+        })
+    for r in rejected:
+        row_logs.append({
+            "row_index": r["row_index"],
+            "event": "rechazado",
+            "detail": r["reason"],
+            "data": r["data"],
+        })
+
     return df, stats, rejected, row_logs
 
 
