@@ -149,17 +149,6 @@ def create_tables(engine) -> None:
                 campaign TEXT, pdays TEXT, previous TEXT, poutcome TEXT,
                 deposit TEXT
             );
-            CREATE TABLE IF NOT EXISTS bank_clean (
-                id SERIAL PRIMARY KEY,
-                processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                age INTEGER, job VARCHAR(50), marital VARCHAR(30),
-                education VARCHAR(30), default_credit BOOLEAN, balance INTEGER,
-                housing BOOLEAN, loan BOOLEAN, contact VARCHAR(30), day INTEGER,
-                month VARCHAR(10), duration INTEGER, campaign INTEGER,
-                pdays INTEGER, previous INTEGER, poutcome VARCHAR(30),
-                deposit BOOLEAN
-            );
-            CREATE INDEX IF NOT EXISTS idx_bank_clean_deposit ON bank_clean (deposit);
             CREATE TABLE IF NOT EXISTS etl_reports (
                 id SERIAL PRIMARY KEY,
                 generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -516,16 +505,13 @@ def main() -> None:
     log.info("  filas categoría inválida: %d", stats["filas_categoria_invalida"])
     log.info("  filas nulos críticos    : %d", stats["filas_con_nulos_criticos"])
 
-    load_clean(clean_df, engine)
-    log.info("[Render PG] bank_clean cargado: %d filas (processed_at en %s)", stats["registros_finales"], TZ_NAME)
-
     load_rejected(rejected, engine)
     log.info("[Render PG] etl_rejected: %d filas rechazadas registradas", len(rejected))
 
     load_row_logs(row_logs, engine)
     log.info("[Render PG] etl_row_logs: %d eventos granulares registrados", len(row_logs))
 
-    # --- Supabase (opcional, si SUPABASE_URL está definida) ---
+    # --- Supabase: destino de datos limpios ---
     supabase_engine = get_supabase_engine()
     if supabase_engine:
         create_tables_supabase(supabase_engine)

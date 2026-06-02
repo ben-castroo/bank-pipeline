@@ -213,7 +213,10 @@ def data_raw():
 @app.get("/data/clean")
 def data_clean():
     try:
-        engine = get_engine()
+        from process_data import get_supabase_engine
+        engine = get_supabase_engine()
+        if engine is None:
+            return jsonify({"error": "SUPABASE_URL no configurada"}), 503
         with engine.connect() as conn:
             rows = conn.execute(text(
                 "SELECT * FROM bank_clean ORDER BY id DESC LIMIT 50"
@@ -249,15 +252,15 @@ def truncate_tables():
     from process_data import get_supabase_engine
     results = {}
 
-    # ── Render PostgreSQL ────────────────────────────────────────────────────
+    # ── Render PostgreSQL (metadatos: raw, reports, rejected, row_logs) ──────────
     try:
         engine = get_engine()
         with engine.begin() as conn:
             conn.execute(text(
-                "TRUNCATE TABLE bank_raw, bank_clean, etl_reports, etl_rejected, etl_row_logs RESTART IDENTITY CASCADE"
+                "TRUNCATE TABLE bank_raw, etl_reports, etl_rejected, etl_row_logs RESTART IDENTITY CASCADE"
             ))
         results["render"] = "ok"
-        log.warning("Tablas vaciadas en Render PG: bank_raw, bank_clean, etl_reports, etl_rejected, etl_row_logs")
+        log.warning("Tablas vaciadas en Render PG: bank_raw, etl_reports, etl_rejected, etl_row_logs")
     except Exception as exc:
         results["render"] = str(exc)
         log.error("Error al vaciar tablas en Render PG: %s", exc)
