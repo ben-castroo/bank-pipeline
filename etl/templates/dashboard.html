@@ -25,6 +25,41 @@
       </div>
     </div>
 
+    <!-- Upload CSV -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+      <h2 class="font-semibold text-slate-700 mb-3">Cargar archivo de datos</h2>
+      <div class="flex flex-wrap items-center gap-4">
+        <!-- Drop zone -->
+        <label id="drop-zone"
+          class="flex-1 min-w-[220px] flex flex-col items-center justify-center gap-2 border-2 border-dashed border-slate-300 hover:border-indigo-400 rounded-xl p-5 cursor-pointer transition"
+          ondragover="event.preventDefault(); this.classList.add('border-indigo-500','bg-indigo-50')"
+          ondragleave="this.classList.remove('border-indigo-500','bg-indigo-50')"
+          ondrop="handleDrop(event)">
+          <svg class="w-8 h-8 text-slate-300" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+          </svg>
+          <span class="text-sm text-slate-400">Arrastra un CSV aquí o <span class="text-indigo-500 underline">selecciona archivo</span></span>
+          <span class="text-xs text-slate-300">.csv · .xlsx · .xls</span>
+          <input id="file-input" type="file" accept=".csv,.xlsx,.xls" class="hidden" onchange="handleFileSelect(event)" />
+        </label>
+        <!-- Info actual -->
+        <div class="flex flex-col gap-2 min-w-[200px]">
+          <div class="text-xs text-slate-500">
+            <span class="font-medium text-slate-700">Archivo activo:</span>
+            <span id="active-file-name" class="ml-1 font-mono text-indigo-600">—</span>
+            <span id="active-file-source"
+              class="ml-2 px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-400">—</span>
+          </div>
+          <div id="upload-status" class="text-xs text-slate-400 min-h-[1.2rem]"></div>
+          <button id="upload-run-btn" onclick="uploadAndRun()" disabled
+            class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-sm font-semibold rounded-lg shadow transition">
+            ↑ Subir y ejecutar ETL
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Metric Cards -->
     <div id="metrics-grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
       <!-- filled by JS after /report -->
@@ -238,6 +273,82 @@
     loadReport();
     loadLogs();
     loadTable('raw');
+    loadCurrentFile();
+
+    // ── Upload ───────────────────────────────────────────────────────────────
+    let _pendingFile = null;
+
+    function handleDrop(e) {
+      e.preventDefault();
+      document.getElementById('drop-zone').classList.remove('border-indigo-500', 'bg-indigo-50');
+      const file = e.dataTransfer.files[0];
+      if (file) setPendingFile(file);
+    }
+
+    function handleFileSelect(e) {
+      const file = e.target.files[0];
+      if (file) setPendingFile(file);
+    }
+
+    function setPendingFile(file) {
+      _pendingFile = file;
+      const kb = (file.size / 1024).toFixed(1);
+      document.getElementById('upload-status').textContent =
+        `Listo para subir: ${file.name} (${kb} KB)`;
+      document.getElementById('upload-status').className = 'text-xs text-indigo-600 min-h-[1.2rem]';
+      document.getElementById('upload-run-btn').disabled = false;
+    }
+
+    async function uploadAndRun() {
+      if (!_pendingFile) return;
+      if (_status.state === 'running') { alert('El ETL ya está en ejecución'); return; }
+
+      const statusEl = document.getElementById('upload-status');
+      const btn = document.getElementById('upload-run-btn');
+      btn.disabled = true;
+      statusEl.textContent = 'Subiendo archivo…';
+      statusEl.className = 'text-xs text-amber-600 min-h-[1.2rem]';
+
+      const form = new FormData();
+      form.append('file', _pendingFile);
+
+      try {
+        const res = await fetch('/upload', { method: 'POST', body: form });
+        const data = await res.json();
+        if (!res.ok) {
+          statusEl.textContent = `Error: ${data.error}`;
+          statusEl.className = 'text-xs text-red-500 min-h-[1.2rem]';
+          btn.disabled = false;
+          return;
+        }
+        statusEl.textContent = `✓ ${data.file} subido correctamente`;
+        statusEl.className = 'text-xs text-emerald-600 min-h-[1.2rem]';
+        _pendingFile = null;
+        document.getElementById('file-input').value = '';
+        await loadCurrentFile();
+        // Lanzar ETL automáticamente
+        await runETL();
+      } catch(e) {
+        statusEl.textContent = 'Error de red al subir el archivo';
+        statusEl.className = 'text-xs text-red-500 min-h-[1.2rem]';
+        btn.disabled = false;
+      }
+    }
+
+    async function loadCurrentFile() {
+      try {
+        const data = await fetch('/current-file').then(r => r.json());
+        document.getElementById('active-file-name').textContent = data.file ?? '—';
+        const src = document.getElementById('active-file-source');
+        if (data.source === 'subido') {
+          src.textContent = 'subido';
+          src.className = 'ml-2 px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700';
+        } else {
+          src.textContent = 'predeterminado';
+          src.className = 'ml-2 px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-400';
+        }
+      } catch(e) {}
+    }
   </script>
 </body>
 </html>

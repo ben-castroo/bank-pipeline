@@ -7,9 +7,10 @@ import os
 import threading
 from collections import deque
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, request
 from sqlalchemy import text
 
 from process_data import TZ_NAME, get_engine, log, main as run_etl
@@ -18,6 +19,21 @@ app = Flask(__name__)
 _tz = ZoneInfo(TZ_NAME)
 
 _status = {"state": "pending", "last_run": None, "error": None, "timezone": TZ_NAME}
+
+_UPLOAD_PATH = Path("/tmp/uploaded_bank.csv")
+_DEFAULT_FILE = "/data/bank.csv"
+
+
+def _active_file() -> str:
+    return str(_UPLOAD_PATH) if _UPLOAD_PATH.exists() else _DEFAULT_FILE
+
+
+_ALLOWED_EXT = {".csv", ".xlsx", ".xls"}
+
+
+def _safe_ext(filename: str) -> str | None:
+    ext = Path(filename).suffix.lower()
+    return ext if ext in _ALLOWED_EXT else None
 
 
 # ---------------------------------------------------------------------------
@@ -47,7 +63,9 @@ def _run_etl_background() -> None:
     _status["state"] = "running"
     _status["last_run"] = datetime.now(_tz).isoformat()
     _status["error"] = None
-    log.info("ETL disparado desde Web Service (tz=%s)", TZ_NAME)
+    # Apunta siempre al archivo activo (subido o por defecto)
+    os.environ["DATA_FILE"] = _active_file()
+    log.info("ETL disparado desde Web Service (tz=%s) · archivo: %s", TZ_NAME, os.environ["DATA_FILE"])
     try:
         run_etl()
         _status["state"] = "success"
@@ -92,6 +110,33 @@ def trigger():
         return jsonify({"message": "ETL ya en ejecución"}), 409
     threading.Thread(target=_run_etl_background, daemon=True).start()
     return jsonify({"message": "ETL iniciado"}), 202
+
+
+@app.get("/current-file")
+def current_file():
+    path = _active_file()
+    source = "subido" if _UPLOAD_PATH.exists() else "predeterminado"
+    size = Path(path).stat().st_size if Path(path).exists() else 0
+    return jsonify({"file": Path(path).name, "source": source, "bytes": size}), 200
+
+
+@app.post("/upload")
+def upload():
+    if "file" not in request.files:
+        return jsonify({"error": "No se recibió ningún archivo"}), 400
+    f = request.files["file"]
+    if not f.filename:
+        return jsonify({"error": "Nombre de archivo vacío"}), 400
+    ext = _safe_ext(f.filename)
+    if ext is None:
+        return jsonify({"error": "Solo se permiten archivos .csv, .xlsx o .xls"}), 415
+    dest = _UPLOAD_PATH.with_suffix(ext)
+    f.save(dest)
+    # Si cambió extensión, eliminar el anterior
+    if dest != _UPLOAD_PATH and _UPLOAD_PATH.exists():
+        _UPLOAD_PATH.unlink(missing_ok=True)
+    log.info("Archivo subido: %s (%d bytes)", dest.name, dest.stat().st_size)
+    return jsonify({"message": f"Archivo {dest.name} recibido", "file": dest.name}), 200
 
 
 @app.get("/report")
