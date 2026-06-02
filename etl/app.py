@@ -114,6 +114,31 @@ def get_logs():
     return jsonify(_log_capture.get_logs()), 200
 
 
+@app.get("/logs/granular")
+def get_granular_logs():
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT row_index, event, detail, snapshot, run_at "
+                "FROM etl_row_logs ORDER BY row_index, id LIMIT 1000"
+            )).mappings().all()
+        result = []
+        for r in rows:
+            entry = {
+                "row_index": r["row_index"],
+                "event": r["event"],
+                "detail": r["detail"],
+                "run_at": r["run_at"].isoformat() if r["run_at"] else None,
+            }
+            if r["snapshot"]:
+                entry["snapshot"] = r["snapshot"]
+            result.append(entry)
+        return jsonify(result), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.post("/run")
 def trigger():
     if _status["state"] == "running":
@@ -222,10 +247,10 @@ def truncate_tables():
         engine = get_engine()
         with engine.begin() as conn:
             conn.execute(text(
-                "TRUNCATE TABLE bank_raw, bank_clean, etl_reports, etl_rejected RESTART IDENTITY CASCADE"
+                "TRUNCATE TABLE bank_raw, bank_clean, etl_reports, etl_rejected, etl_row_logs RESTART IDENTITY CASCADE"
             ))
         results["render"] = "ok"
-        log.warning("Tablas vaciadas en Render PG: bank_raw, bank_clean, etl_reports, etl_rejected")
+        log.warning("Tablas vaciadas en Render PG: bank_raw, bank_clean, etl_reports, etl_rejected, etl_row_logs")
     except Exception as exc:
         results["render"] = str(exc)
         log.error("Error al vaciar tablas en Render PG: %s", exc)

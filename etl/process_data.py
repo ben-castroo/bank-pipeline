@@ -179,6 +179,14 @@ def create_tables(engine) -> None:
                 reason VARCHAR(60),
                 original_data JSONB
             );
+            CREATE TABLE IF NOT EXISTS etl_row_logs (
+                id SERIAL PRIMARY KEY,
+                run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                row_index INTEGER,
+                event VARCHAR(40),
+                detail TEXT,
+                snapshot JSONB
+            );
         """))
     log.info("Tablas verificadas/creadas en Render PostgreSQL.")
 
@@ -261,8 +269,9 @@ def _row_to_dict(row) -> dict:
     return result
 
 
-def clean_data(df: pd.DataFrame) -> tuple[pd.DataFrame, dict, list]:
+def clean_data(df: pd.DataFrame) -> tuple[pd.DataFrame, dict, list, list]:
     rejected: list[dict] = []
+    row_logs: list[dict] = []
     stats: dict = {}
     stats["registros_iniciales"] = len(df)
 
@@ -275,9 +284,30 @@ def clean_data(df: pd.DataFrame) -> tuple[pd.DataFrame, dict, list]:
     stats["duplicados_eliminados"] = int(dup_mask.sum())
     df = df.drop_duplicates()
 
-    for col in TEXT_COLUMNS:
+    # ── Normalización de texto ──────────────────────────────────────────────────
+    # Capturar valores ANTES de normalizar para comparar luego
+    existing_text_cols = [c for c in TEXT_COLUMNS if c in df.columns]
+    df_pre_norm = df[existing_text_cols].astype(str).copy()
+
+    for col in existing_text_cols:
         df[col] = df[col].astype(str).str.strip().str.lower()
         df[col] = df[col].replace({"nan": "unknown", "": "unknown"})
+
+    # Registrar filas donde algo cambió
+    for idx in df.index:
+        changes = {}
+        for col in existing_text_cols:
+            before = df_pre_norm.at[idx, col]
+            after = df.at[idx, col]
+            if before != after:
+                changes[col] = {"antes": before, "despues": after}
+        if changes:
+            row_logs.append({
+                "row_index": int(idx),
+                "event": "normalizado",
+                "detail": "; ".join(f"{c}: '{v['antes']}'→'{v['despues']}'" for c, v in changes.items()),
+                "data": _row_to_dict(df.loc[idx]),
+            })
 
     for col in NUMERIC_COLUMNS:
         df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -297,8 +327,19 @@ def clean_data(df: pd.DataFrame) -> tuple[pd.DataFrame, dict, list]:
     df = df[range_mask]
     stats["filas_fuera_de_rango"] = before_ranges - len(df)
 
+    # ── Binarias ───────────────────────────────────────────────────────────────
     for col in BINARY_COLUMNS:
+        original_vals = df[col].copy()
         df[col] = df[col].map({"yes": True, "no": False})
+        # Detectar valores que no eran yes/no y no eran ya nulos
+        invalid_bin = df[col].isna() & original_vals.notna()
+        for idx in df[invalid_bin].index:
+            row_logs.append({
+                "row_index": int(idx),
+                "event": "binario_invalido",
+                "detail": f"{col}: valor '{original_vals.at[idx]}' no es yes/no → NULL",
+                "data": _row_to_dict(df.loc[idx]),
+            })
 
     # ── Categoría inválida ───────────────────────────────────────────────────
     cat_mask = (
@@ -328,7 +369,7 @@ def clean_data(df: pd.DataFrame) -> tuple[pd.DataFrame, dict, list]:
     stats["registros_finales"] = len(df)
     stats["nulos_por_columna"] = df.isnull().sum().to_dict()
 
-    return df, stats, rejected
+    return df, stats, rejected, row_logs
 
 
 def load_clean(df: pd.DataFrame, engine) -> None:
@@ -365,6 +406,30 @@ def load_rejected(rejected: list, engine) -> None:
                     "original_data": json.dumps(r["data"], ensure_ascii=False, default=str),
                 },
             )
+
+
+def load_row_logs(row_logs: list, engine) -> None:
+    """Guarda los logs granulares por fila (normaliz. y binarios inválidos)."""
+    with engine.begin() as conn:
+        conn.execute(text("TRUNCATE TABLE etl_row_logs RESTART IDENTITY"))
+        if not row_logs:
+            return
+        conn.execute(
+            text("""
+                INSERT INTO etl_row_logs (run_at, row_index, event, detail, snapshot)
+                VALUES (:run_at, :row_index, :event, :detail, CAST(:snapshot AS jsonb))
+            """),
+            [
+                {
+                    "run_at": datetime.now(_tz),
+                    "row_index": r["row_index"],
+                    "event": r["event"],
+                    "detail": r["detail"],
+                    "snapshot": json.dumps(r["data"], ensure_ascii=False, default=str),
+                }
+                for r in row_logs
+            ],
+        )
 
 
 def write_report(stats: dict, source_file: str, engine) -> None:
@@ -428,7 +493,7 @@ def main() -> None:
     load_raw(df, engine)
     log.info("[Render PG] bank_raw cargado: %d filas (loaded_at en %s)", initial_rows, TZ_NAME)
 
-    clean_df, stats, rejected = clean_data(df)
+    clean_df, stats, rejected, row_logs = clean_data(df)
     log.info("Limpieza completada: %d → %d filas", initial_rows, stats["registros_finales"])
     log.info("  duplicados eliminados   : %d", stats["duplicados_eliminados"])
     log.info("  filas fuera de rango    : %d", stats["filas_fuera_de_rango"])
@@ -440,6 +505,9 @@ def main() -> None:
 
     load_rejected(rejected, engine)
     log.info("[Render PG] etl_rejected: %d filas rechazadas registradas", len(rejected))
+
+    load_row_logs(row_logs, engine)
+    log.info("[Render PG] etl_row_logs: %d eventos granulares registrados", len(row_logs))
 
     # --- Supabase (opcional, si SUPABASE_URL está definida) ---
     supabase_engine = get_supabase_engine()
