@@ -108,6 +108,7 @@
   <script>
     let currentTab = 'raw';
     let pollInterval = null;
+    let _etlState = 'pending';  // espejo JS del estado del ETL
 
     const STATUS_STYLE = {
       pending: 'bg-gray-200 text-gray-600',
@@ -144,6 +145,7 @@
     async function loadStatus() {
       try {
         const { etl } = await fetch('/health').then(r => r.json());
+        _etlState = etl.state;  // actualizar espejo JS
         const badge = document.getElementById('status-badge');
         badge.className = `px-3 py-1 rounded-full text-sm font-medium ${STATUS_STYLE[etl.state] ?? STATUS_STYLE.pending}`;
         badge.textContent = STATUS_LABEL[etl.state] ?? etl.state;
@@ -267,7 +269,20 @@
       } catch(e) { alert('No se pudo iniciar el ETL'); }
       btn.disabled = false;
     }
-
+    async function loadCurrentFile() {
+      try {
+        const data = await fetch('/current-file').then(r => r.json());
+        document.getElementById('active-file-name').textContent = data.file ?? '—';
+        const src = document.getElementById('active-file-source');
+        if (data.source === 'subido') {
+          src.textContent = 'subido';
+          src.className = 'ml-2 px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700';
+        } else {
+          src.textContent = 'predeterminado';
+          src.className = 'ml-2 px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-400';
+        }
+      } catch(e) {}
+    }
     // ── Init ─────────────────────────────────────────────────────────────────
     loadStatus();
     loadReport();
@@ -301,7 +316,7 @@
 
     async function uploadAndRun() {
       if (!_pendingFile) return;
-      if (_status.state === 'running') { alert('El ETL ya está en ejecución'); return; }
+      if (_etlState === 'running') { alert('El ETL ya está en ejecución'); return; }
 
       const statusEl = document.getElementById('upload-status');
       const btn = document.getElementById('upload-run-btn');
