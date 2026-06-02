@@ -1,0 +1,30 @@
+{
+  "generated_at": "2026-06-01T16:38:36.393349+00:00",
+  "source_file": "/data/bank.csv",
+  "registros_iniciales": 11162,
+  "duplicados_eliminados": 0,
+  "filas_fuera_de_rango": 0,
+  "filas_categoria_invalida": 0,
+  "filas_con_nulos_criticos": 0,
+  "registros_finales": 11162,
+  "nulos_por_columna": {
+    "age": 0,
+    "job": 0,
+    "marital": 0,
+    "education": 0,
+    "default_credit": 0,
+    "balance": 0,
+    "housing": 0,
+    "loan": 0,
+    "contact": 0,
+    "day": 0,
+    "month": 0,
+    "duration": 0,
+    "campaign": 0,
+    "pdays": 0,
+    "previous": 0,
+    "poutcome": 0,
+    "deposit": 0
+  },
+  "archivo_origen": "bank.csv"
+}
