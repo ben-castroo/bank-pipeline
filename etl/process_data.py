@@ -148,7 +148,7 @@ def clean_data(df: pd.DataFrame) -> tuple[pd.DataFrame, dict, list, list]:
     # ── Duplicados ───────────────────────────────────────────────────────────
     dup_mask = df.duplicated()
     for i, row in df[dup_mask].iterrows():
-        rejected.append({"row_index": int(i), "reason": "duplicado", "data": _row_to_dict(row)})
+        rejected.append({"row_index": int(i), "reason": "duplicado", "data": {"raw_id": int(i)+1, **_row_to_dict(row)}})
     stats["duplicados_eliminados"] = int(dup_mask.sum())
     df = df.drop_duplicates()
 
@@ -174,7 +174,12 @@ def clean_data(df: pd.DataFrame) -> tuple[pd.DataFrame, dict, list, list]:
                 "row_index": int(idx),
                 "event": "normalizado",
                 "detail": "; ".join(f"{c}: '{v['antes']}'→'{v['despues']}'" for c, v in changes.items()),
-                "data": _row_to_dict(df.loc[idx]),
+                "data": {
+                    "raw_id": int(idx)+1,
+                    "_antes": {c: v["antes"] for c, v in changes.items()},
+                    "_despues": {c: v["despues"] for c, v in changes.items()},
+                    **_row_to_dict(df.loc[idx]),
+                },
             })
 
     for col in NUMERIC_COLUMNS:
@@ -190,7 +195,7 @@ def clean_data(df: pd.DataFrame) -> tuple[pd.DataFrame, dict, list, list]:
         & (df["pdays"] >= -1)
     )
     for i, row in df[~range_mask].iterrows():
-        rejected.append({"row_index": int(i), "reason": "fuera_de_rango", "data": _row_to_dict(row)})
+        rejected.append({"row_index": int(i), "reason": "fuera_de_rango", "data": {"raw_id": int(i)+1, **_row_to_dict(row)}})
     before_ranges = len(df)
     df = df[range_mask]
     stats["filas_fuera_de_rango"] = before_ranges - len(df)
@@ -206,7 +211,12 @@ def clean_data(df: pd.DataFrame) -> tuple[pd.DataFrame, dict, list, list]:
                 "row_index": int(idx),
                 "event": "binario_invalido",
                 "detail": f"{col}: valor '{original_vals.at[idx]}' no es yes/no → NULL",
-                "data": _row_to_dict(df.loc[idx]),
+                "data": {
+                    "raw_id": int(idx)+1,
+                    "_antes": {col: original_vals.at[idx]},
+                    "_despues": {col: None},
+                    **_row_to_dict(df.loc[idx]),
+                },
             })
 
     # ── Categoría inválida ───────────────────────────────────────────────────
@@ -218,7 +228,7 @@ def clean_data(df: pd.DataFrame) -> tuple[pd.DataFrame, dict, list, list]:
         & df["job"].isin(VALID_JOBS)
     )
     for i, row in df[~cat_mask].iterrows():
-        rejected.append({"row_index": int(i), "reason": "categoria_invalida", "data": _row_to_dict(row)})
+        rejected.append({"row_index": int(i), "reason": "categoria_invalida", "data": {"raw_id": int(i)+1, **_row_to_dict(row)}})
     before_cat = len(df)
     df = df[cat_mask]
     stats["filas_categoria_invalida"] = before_cat - len(df)
@@ -230,7 +240,7 @@ def clean_data(df: pd.DataFrame) -> tuple[pd.DataFrame, dict, list, list]:
     ]
     null_mask = df[critical].isna().any(axis=1)
     for i, row in df[null_mask].iterrows():
-        rejected.append({"row_index": int(i), "reason": "nulo_critico", "data": _row_to_dict(row)})
+        rejected.append({"row_index": int(i), "reason": "nulo_critico", "data": {"raw_id": int(i)+1, **_row_to_dict(row)}})
     null_before = len(df)
     df = df.dropna(subset=critical)
     stats["filas_con_nulos_criticos"] = null_before - len(df)
@@ -243,7 +253,7 @@ def clean_data(df: pd.DataFrame) -> tuple[pd.DataFrame, dict, list, list]:
             "row_index": int(i),
             "event": "aceptado",
             "detail": "fila procesada y cargada",
-            "data": _row_to_dict(row),
+            "data": {"raw_id": int(i)+1, **_row_to_dict(row)},
         })
     for r in rejected:
         row_logs.append({

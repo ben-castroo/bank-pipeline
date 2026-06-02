@@ -132,10 +132,10 @@
       <div id="snap-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
         <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl flex flex-col max-h-[80vh]">
           <div class="flex items-center justify-between px-5 py-3 border-b border-slate-200">
-            <span class="font-semibold text-slate-700">Datos de la fila</span>
+            <span id="snap-modal-title" class="font-semibold text-slate-700">Datos de la fila</span>
             <button onclick="closeSnapModal()" class="text-slate-400 hover:text-slate-700 text-xl leading-none">&times;</button>
           </div>
-          <pre id="snap-modal-body" class="overflow-auto p-5 text-xs text-slate-700 font-mono flex-1 whitespace-pre-wrap break-all"></pre>
+          <div id="snap-modal-body" class="overflow-auto p-5 text-xs text-slate-700 flex-1"></div>
         </div>
       </div>
 
@@ -345,7 +345,57 @@
 
     function openSnapModal(btn) {
       const data = JSON.parse(btn.getAttribute('data-snap').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>'));
-      document.getElementById('snap-modal-body').textContent = JSON.stringify(data, null, 2);
+      const rawId = data.raw_id !== undefined ? data.raw_id : '—';
+      document.getElementById('snap-modal-title').textContent = `Fila ID #${rawId}`;
+
+      const SKIP = new Set(['raw_id', '_antes', '_despues']);
+      let html = '';
+
+      // Sección antes/despues (normalizado y binario_invalido)
+      if (data._antes) {
+        const cols = Object.keys(data._antes);
+        html += `<div class="mb-4">`;
+        html += `<p class="font-semibold text-slate-600 mb-2">Cambios aplicados</p>`;
+        html += `<table class="w-full border-collapse text-xs">`;
+        html += `<thead><tr class="bg-slate-100">`;
+        html += `<th class="text-left px-3 py-1.5 font-medium text-slate-500">Campo</th>`;
+        html += `<th class="text-left px-3 py-1.5 font-medium text-red-500">Antes</th>`;
+        html += `<th class="text-left px-3 py-1.5 font-medium text-green-600">Después</th>`;
+        html += `</tr></thead><tbody>`;
+        cols.forEach(c => {
+          const before = data._antes[c] === null ? '<span class="text-slate-300">null</span>' : esc(String(data._antes[c]));
+          const after  = data._despues[c] === null ? '<span class="text-slate-300">null</span>' : esc(String(data._despues[c]));
+          html += `<tr class="border-t border-slate-100">`;
+          html += `<td class="px-3 py-1 font-mono font-semibold text-slate-700">${esc(c)}</td>`;
+          html += `<td class="px-3 py-1 text-red-500 line-through">${before}</td>`;
+          html += `<td class="px-3 py-1 text-green-600 font-medium">${after}</td>`;
+          html += `</tr>`;
+        });
+        html += `</tbody></table></div>`;
+      }
+
+      // Tabla de todos los campos de la fila
+      const fields = Object.keys(data).filter(k => !SKIP.has(k));
+      if (fields.length) {
+        html += `<p class="font-semibold text-slate-600 mb-2">Datos de la fila</p>`;
+        html += `<table class="w-full border-collapse text-xs">`;
+        html += `<thead><tr class="bg-slate-100">`;
+        html += `<th class="text-left px-3 py-1.5 font-medium text-slate-500">Campo</th>`;
+        html += `<th class="text-left px-3 py-1.5 font-medium text-slate-500">Valor</th>`;
+        html += `</tr></thead><tbody>`;
+        fields.forEach(k => {
+          const v = data[k] === null || data[k] === undefined
+            ? '<span class="text-slate-300">null</span>'
+            : esc(String(data[k]));
+          html += `<tr class="border-t border-slate-100">`;
+          html += `<td class="px-3 py-1 font-mono text-slate-500">${esc(k)}</td>`;
+          html += `<td class="px-3 py-1 text-slate-700">${v}</td>`;
+          html += `</tr>`;
+        });
+        html += `</tbody></table>`;
+      }
+
+      document.getElementById('snap-modal-body').innerHTML = html;
       document.getElementById('snap-modal').classList.remove('hidden');
     }
     function closeSnapModal() {
