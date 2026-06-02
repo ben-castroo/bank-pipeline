@@ -119,6 +119,18 @@ def create_tables(engine) -> None:
                 deposit BOOLEAN
             );
             CREATE INDEX IF NOT EXISTS idx_bank_clean_deposit ON bank_clean (deposit);
+            CREATE TABLE IF NOT EXISTS etl_reports (
+                id SERIAL PRIMARY KEY,
+                generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                source_file TEXT,
+                registros_iniciales INTEGER,
+                duplicados_eliminados INTEGER,
+                filas_fuera_de_rango INTEGER,
+                filas_categoria_invalida INTEGER,
+                filas_con_nulos_criticos INTEGER,
+                registros_finales INTEGER,
+                payload JSONB NOT NULL
+            );
         """))
     print("Tablas verificadas/creadas correctamente.")
 
@@ -229,16 +241,47 @@ def load_clean(df: pd.DataFrame, engine) -> None:
     out.to_sql("bank_clean", engine, if_exists="append", index=False)
 
 
-def write_report(stats: dict, source_file: str) -> None:
-    report_dir = Path("/reports")
-    report_dir.mkdir(parents=True, exist_ok=True)
+def write_report(stats: dict, source_file: str, engine) -> None:
     payload = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "source_file": source_file,
         **stats,
     }
-    path = report_dir / "quality_report.json"
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    # Intentar escribir en /reports (local/dev); en Render es efímero pero no falla
+    try:
+        report_dir = Path("/reports")
+        report_dir.mkdir(parents=True, exist_ok=True)
+        (report_dir / "quality_report.json").write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+    except OSError:
+        pass
+    # Persistir siempre en PostgreSQL
+    with engine.begin() as conn:
+        conn.execute(
+            text("""
+                INSERT INTO etl_reports
+                    (generated_at, source_file, registros_iniciales,
+                     duplicados_eliminados, filas_fuera_de_rango,
+                     filas_categoria_invalida, filas_con_nulos_criticos,
+                     registros_finales, payload)
+                VALUES
+                    (NOW(), :source_file, :registros_iniciales,
+                     :duplicados_eliminados, :filas_fuera_de_rango,
+                     :filas_categoria_invalida, :filas_con_nulos_criticos,
+                     :registros_finales, :payload::jsonb)
+            """),
+            {
+                "source_file": source_file,
+                "registros_iniciales": stats.get("registros_iniciales"),
+                "duplicados_eliminados": stats.get("duplicados_eliminados"),
+                "filas_fuera_de_rango": stats.get("filas_fuera_de_rango"),
+                "filas_categoria_invalida": stats.get("filas_categoria_invalida"),
+                "filas_con_nulos_criticos": stats.get("filas_con_nulos_criticos"),
+                "registros_finales": stats.get("registros_finales"),
+                "payload": json.dumps(payload, ensure_ascii=False),
+            },
+        )
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
@@ -259,7 +302,7 @@ def main() -> None:
     load_clean(clean_df, engine)
 
     stats["archivo_origen"] = str(source.name)
-    write_report(stats, str(source))
+    write_report(stats, str(source), engine)
 
     print("ETL finalizado correctamente.")
     print(f"  Raw:   {initial_rows} filas")

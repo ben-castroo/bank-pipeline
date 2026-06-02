@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from flask import Flask, jsonify
 
-from process_data import main as run_etl
+from process_data import get_engine, main as run_etl
 
 app = Flask(__name__)
 
@@ -39,6 +39,23 @@ def trigger():
     t = threading.Thread(target=_run_etl_background, daemon=True)
     t.start()
     return jsonify({"message": "ETL iniciado"}), 202
+
+
+@app.get("/report")
+def report():
+    """Devuelve el último quality report guardado en PostgreSQL."""
+    from sqlalchemy import text
+    try:
+        engine = get_engine()
+        with engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT payload FROM etl_reports ORDER BY generated_at DESC LIMIT 1"
+            )).fetchone()
+        if row is None:
+            return jsonify({"error": "No hay reportes aún"}), 404
+        return jsonify(row[0]), 200
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 if __name__ == "__main__":
