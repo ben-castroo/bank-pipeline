@@ -21,11 +21,16 @@ _tz = ZoneInfo(TZ_NAME)
 _status = {"state": "pending", "last_run": None, "error": None, "timezone": TZ_NAME}
 
 _UPLOAD_PATH = Path("/tmp/uploaded_bank.csv")
-_DEFAULT_FILE = "/data/bank.csv"
 
 
-def _active_file() -> str:
-    return str(_UPLOAD_PATH) if _UPLOAD_PATH.exists() else _DEFAULT_FILE
+def _active_file() -> str | None:
+    """Devuelve la ruta del archivo subido, o None si no hay ninguno."""
+    # Busca cualquier extensión soportada
+    for ext in (".csv", ".xlsx", ".xls"):
+        candidate = _UPLOAD_PATH.with_suffix(ext)
+        if candidate.exists():
+            return str(candidate)
+    return None
 
 
 _ALLOWED_EXT = {".csv", ".xlsx", ".xls"}
@@ -63,9 +68,14 @@ def _run_etl_background() -> None:
     _status["state"] = "running"
     _status["last_run"] = datetime.now(_tz).isoformat()
     _status["error"] = None
-    # Apunta siempre al archivo activo (subido o por defecto)
-    os.environ["DATA_FILE"] = _active_file()
-    log.info("ETL disparado desde Web Service (tz=%s) · archivo: %s", TZ_NAME, os.environ["DATA_FILE"])
+    file_path = _active_file()
+    if file_path is None:
+        _status["state"] = "error"
+        _status["error"] = "No hay archivo cargado. Sube un CSV desde el dashboard."
+        log.error("ETL cancelado: no hay archivo cargado.")
+        return
+    os.environ["DATA_FILE"] = file_path
+    log.info("ETL disparado desde Web Service (tz=%s) · archivo: %s", TZ_NAME, file_path)
     try:
         run_etl()
         _status["state"] = "success"
@@ -115,9 +125,10 @@ def trigger():
 @app.get("/current-file")
 def current_file():
     path = _active_file()
-    source = "subido" if _UPLOAD_PATH.exists() else "predeterminado"
-    size = Path(path).stat().st_size if Path(path).exists() else 0
-    return jsonify({"file": Path(path).name, "source": source, "bytes": size}), 200
+    if path is None:
+        return jsonify({"file": None, "source": "ninguno", "bytes": 0}), 200
+    size = Path(path).stat().st_size
+    return jsonify({"file": Path(path).name, "source": "subido", "bytes": size}), 200
 
 
 @app.post("/upload")

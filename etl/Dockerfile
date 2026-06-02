@@ -8,8 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY etl/process_data.py .
 
-# Incluye el CSV dentro de la imagen (Render no tiene volumes)
-COPY data/bank.csv /data/bank.csv
+# CSV eliminado del contenedor: se carga dinámicamente desde el dashboard
 
 COPY etl/app.py .
 COPY etl/templates/ /app/templates/

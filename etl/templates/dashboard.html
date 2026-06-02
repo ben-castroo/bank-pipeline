@@ -272,14 +272,21 @@
     async function loadCurrentFile() {
       try {
         const data = await fetch('/current-file').then(r => r.json());
-        document.getElementById('active-file-name').textContent = data.file ?? '—';
         const src = document.getElementById('active-file-source');
-        if (data.source === 'subido') {
+        const runBtn = document.getElementById('run-btn');
+        if (!data.file || data.source === 'ninguno') {
+          document.getElementById('active-file-name').textContent = 'Ninguno';
+          src.textContent = 'requerido';
+          src.className = 'ml-2 px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-600';
+          runBtn.disabled = true;
+          runBtn.title = 'Sube un archivo primero';
+        } else {
+          const kb = (data.bytes / 1024).toFixed(1);
+          document.getElementById('active-file-name').textContent = `${data.file} (${kb} KB)`;
           src.textContent = 'subido';
           src.className = 'ml-2 px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700';
-        } else {
-          src.textContent = 'predeterminado';
-          src.className = 'ml-2 px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-400';
+          runBtn.disabled = false;
+          runBtn.title = '';
         }
       } catch(e) {}
     }
@@ -353,14 +360,21 @@
     async function loadCurrentFile() {
       try {
         const data = await fetch('/current-file').then(r => r.json());
-        document.getElementById('active-file-name').textContent = data.file ?? '—';
         const src = document.getElementById('active-file-source');
-        if (data.source === 'subido') {
+        const runBtn = document.getElementById('run-btn');
+        if (!data.file || data.source === 'ninguno') {
+          document.getElementById('active-file-name').textContent = 'Ninguno';
+          src.textContent = 'requerido';
+          src.className = 'ml-2 px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-600';
+          runBtn.disabled = true;
+          runBtn.title = 'Sube un archivo primero';
+        } else {
+          const kb = (data.bytes / 1024).toFixed(1);
+          document.getElementById('active-file-name').textContent = `${data.file} (${kb} KB)`;
           src.textContent = 'subido';
           src.className = 'ml-2 px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700';
-        } else {
-          src.textContent = 'predeterminado';
-          src.className = 'ml-2 px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-400';
+          runBtn.disabled = false;
+          runBtn.title = '';
         }
       } catch(e) {}
     }
