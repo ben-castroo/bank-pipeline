@@ -12,5 +12,6 @@ COPY etl/process_data.py .
 COPY data/bank.csv /data/bank.csv
 
 COPY etl/app.py .
+COPY etl/templates/ /app/templates/
 
 CMD ["python", "app.py"]
