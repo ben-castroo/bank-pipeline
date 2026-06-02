@@ -316,17 +316,6 @@
     function refreshLogTab() {
       if (currentLogTab === 'general') loadLogs(); else loadGranularLogs();
     }
-        if (!logs.length) {
-          el.innerHTML = '<span class="text-slate-500">Sin logs aún.</span>';
-          return;
-        }
-        el.innerHTML = logs.map(l =>
-          `<p><span class="text-slate-500">${esc(l.time)}</span> ` +
-          `<span class="font-semibold ${LOG_COLOR[l.level] ?? 'text-white'}">[${l.level}]</span> ` +
-          `<span class="text-slate-200">${esc(l.message)}</span></p>`
-        ).join('');
-      } catch(e) {}
-    }
 
     // ── Data table ───────────────────────────────────────────────────────────
     async function loadTable(tab) {
