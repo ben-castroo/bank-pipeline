@@ -1,44 +1,17 @@
 """
-ETL Bank Marketing: lectura → validación → limpieza → PostgreSQL (raw + clean) + Supabase (clean).
+ETL Bank Marketing: lectura → validación → limpieza → PostgreSQL (raw) + Supabase (clean).
 """
 from __future__ import annotations
 
 import json
-import logging
 import os
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 
-# ---------------------------------------------------------------------------
-# Logger con zona horaria configurable (por defecto UTC)
-# ---------------------------------------------------------------------------
-TZ_NAME = os.getenv("TZ", "UTC")
-_tz = ZoneInfo(TZ_NAME)
-
-
-class _TZFormatter(logging.Formatter):
-    """Formateador que incluye la zona horaria en cada mensaje."""
-
-    def formatTime(self, record, datefmt=None):  # noqa: N802
-        dt = datetime.fromtimestamp(record.created, tz=_tz)
-        if datefmt:
-            return dt.strftime(datefmt)
-        return dt.strftime("%Y-%m-%dT%H:%M:%S %Z%z")
-
-
-_handler = logging.StreamHandler(sys.stdout)
-_handler.setFormatter(
-    _TZFormatter(fmt="%(asctime)s [%(levelname)s] %(message)s")
-)
-log = logging.getLogger("etl")
-log.setLevel(logging.INFO)
-log.addHandler(_handler)
-log.propagate = False
+from db import TZ_NAME, _tz, log, get_engine, get_supabase_engine, create_tables, create_tables_supabase
 
 EXPECTED_COLUMNS = [
     "age",
@@ -103,100 +76,6 @@ VALID_JOBS = {
     "technician",
     "services",
 }
-
-
-def get_engine():
-    database_url = os.getenv("DATABASE_URL")
-    if database_url:
-        # Render usa postgresql://, SQLAlchemy necesita postgresql+psycopg2://
-        url = database_url.replace("postgresql://", "postgresql+psycopg2://", 1)
-        if "sslmode" not in url:
-            url += "?sslmode=require"
-        return create_engine(url)
-    user = os.environ["DB_USER"]
-    password = os.environ["DB_PASSWORD"]
-    host = os.environ["DB_HOST"]
-    port = os.environ["DB_PORT"]
-    name = os.environ["DB_NAME"]
-    return create_engine(
-        f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{name}"
-    )
-
-
-def get_supabase_engine():
-    """Retorna engine hacia Supabase usando SUPABASE_URL.
-    Formato esperado: postgresql://user:pass@host:5432/postgres
-    """
-    url = os.getenv("SUPABASE_URL")
-    if not url:
-        return None
-    url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
-    if "sslmode" not in url:
-        url += "?sslmode=require"
-    return create_engine(url)
-
-
-def create_tables(engine) -> None:
-    """Crea las tablas si no existen (Opción B: sin init.sql externo)."""
-    with engine.begin() as conn:
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS bank_raw (
-                id SERIAL PRIMARY KEY,
-                loaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                age TEXT, job TEXT, marital TEXT, education TEXT,
-                default_credit TEXT, balance TEXT, housing TEXT, loan TEXT,
-                contact TEXT, day TEXT, month TEXT, duration TEXT,
-                campaign TEXT, pdays TEXT, previous TEXT, poutcome TEXT,
-                deposit TEXT
-            );
-            CREATE TABLE IF NOT EXISTS etl_reports (
-                id SERIAL PRIMARY KEY,
-                generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                source_file TEXT,
-                registros_iniciales INTEGER,
-                duplicados_eliminados INTEGER,
-                filas_fuera_de_rango INTEGER,
-                filas_categoria_invalida INTEGER,
-                filas_con_nulos_criticos INTEGER,
-                registros_finales INTEGER,
-                payload JSONB NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS etl_rejected (
-                id SERIAL PRIMARY KEY,
-                run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                row_index INTEGER,
-                reason VARCHAR(60),
-                original_data JSONB
-            );
-            CREATE TABLE IF NOT EXISTS etl_row_logs (
-                id SERIAL PRIMARY KEY,
-                run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                row_index INTEGER,
-                event VARCHAR(40),
-                detail TEXT,
-                snapshot JSONB
-            );
-        """))
-    log.info("Tablas verificadas/creadas en Render PostgreSQL.")
-
-
-def create_tables_supabase(engine) -> None:
-    """Crea bank_clean en Supabase si no existe."""
-    with engine.begin() as conn:
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS bank_clean (
-                id SERIAL PRIMARY KEY,
-                processed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                age INTEGER, job VARCHAR(50), marital VARCHAR(30),
-                education VARCHAR(30), default_credit BOOLEAN, balance INTEGER,
-                housing BOOLEAN, loan BOOLEAN, contact VARCHAR(30), day INTEGER,
-                month VARCHAR(10), duration INTEGER, campaign INTEGER,
-                pdays INTEGER, previous INTEGER, poutcome VARCHAR(30),
-                deposit BOOLEAN
-            );
-            CREATE INDEX IF NOT EXISTS idx_bank_clean_deposit ON bank_clean (deposit);
-        """))
-    log.info("Tabla bank_clean verificada/creada en Supabase.")
 
 
 def resolve_data_file() -> Path:
@@ -375,14 +254,6 @@ def clean_data(df: pd.DataFrame) -> tuple[pd.DataFrame, dict, list, list]:
         })
 
     return df, stats, rejected, row_logs
-
-
-def load_clean(df: pd.DataFrame, engine) -> None:
-    out = df.copy()
-    out["processed_at"] = datetime.now(_tz)
-    with engine.begin() as conn:
-        conn.execute(text("TRUNCATE TABLE bank_clean RESTART IDENTITY"))
-    out.to_sql("bank_clean", engine, if_exists="append", index=False)
 
 
 def load_clean_supabase(df: pd.DataFrame, engine) -> None:

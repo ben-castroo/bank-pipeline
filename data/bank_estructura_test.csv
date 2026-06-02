@@ -1,0 +1,4 @@
+edad,tipo_trabajo,estado_civil,nivel_educacion,mora,saldo,hipoteca,credito,medio_contacto,dia,mes,duracion_seg,num_contactos,dias_desde_anterior,contactos_previos,resultado_previo,suscrito,puntuacion
+35,admin.,casado,secundaria,no,1500,si,no,celular,15,may,320,2,-1,0,unknown,si,90
+42,blue-collar,soltero,primaria,no,-200,no,no,telefono,3,jun,180,4,90,1,exito,no,45
+28,estudiante,divorciado,terciaria,no,800,no,no,celular,22,ago,450,1,-1,0,unknown,si,78

@@ -13,7 +13,8 @@ from zoneinfo import ZoneInfo
 from flask import Flask, jsonify, render_template, request
 from sqlalchemy import text
 
-from process_data import TZ_NAME, get_engine, log, main as run_etl
+from db import TZ_NAME, get_engine, log
+from process_data import main as run_etl
 
 app = Flask(__name__)
 _tz = ZoneInfo(TZ_NAME)
@@ -121,7 +122,7 @@ def get_granular_logs():
         with engine.connect() as conn:
             total = conn.execute(text("SELECT COUNT(*) FROM etl_row_logs")).scalar() or 0
             rows = conn.execute(text(
-                "SELECT row_index, event, detail, snapshot, run_at "
+                "SELECT id, row_index, event, detail, snapshot, run_at "
                 "FROM etl_row_logs "
                 "ORDER BY CASE event "
                 "  WHEN 'rechazado' THEN 0 "
@@ -133,6 +134,7 @@ def get_granular_logs():
         result = []
         for r in rows:
             entry = {
+                "id": r["id"],
                 "row_index": r["row_index"],
                 "event": r["event"],
                 "detail": r["detail"],
@@ -213,7 +215,7 @@ def data_raw():
 @app.get("/data/clean")
 def data_clean():
     try:
-        from process_data import get_supabase_engine
+        from db import get_supabase_engine
         engine = get_supabase_engine()
         if engine is None:
             return jsonify({"error": "SUPABASE_URL no configurada"}), 503
@@ -232,12 +234,12 @@ def data_rejected():
         engine = get_engine()
         with engine.connect() as conn:
             rows = conn.execute(text(
-                "SELECT row_index, reason, original_data "
+                "SELECT id, row_index, reason, original_data "
                 "FROM etl_rejected ORDER BY id LIMIT 500"
             )).mappings().all()
         result = []
         for r in rows:
-            entry = {"row_index": r["row_index"], "reason": r["reason"]}
+            entry = {"id": r["id"], "row_index": r["row_index"], "reason": r["reason"]}
             if r["original_data"]:
                 entry.update(r["original_data"])
             result.append(entry)
@@ -249,7 +251,7 @@ def data_rejected():
 @app.post("/truncate")
 def truncate_tables():
     """Vacía las tablas de datos en Render PG y Supabase."""
-    from process_data import get_supabase_engine
+    from db import get_supabase_engine
     results = {}
 
     # ── Render PostgreSQL (metadatos: raw, reports, rejected, row_logs) ──────────
