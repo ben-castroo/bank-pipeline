@@ -2,9 +2,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
+# Rutas relativas al root bank-pipeline/ (build context en Render)
+COPY etl/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY process_data.py .
+COPY etl/process_data.py .
+
+# Incluye el CSV dentro de la imagen (Render no tiene volumes)
+COPY data/bank.csv /data/bank.csv
 
 CMD ["python", "process_data.py"]

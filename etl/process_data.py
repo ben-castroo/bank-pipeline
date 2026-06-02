@@ -78,6 +78,13 @@ VALID_JOBS = {
 
 
 def get_engine():
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        # Render usa postgresql://, SQLAlchemy necesita postgresql+psycopg2://
+        url = database_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+        if "sslmode" not in url:
+            url += "?sslmode=require"
+        return create_engine(url)
     user = os.environ["DB_USER"]
     password = os.environ["DB_PASSWORD"]
     host = os.environ["DB_HOST"]
