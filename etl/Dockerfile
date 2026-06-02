@@ -11,4 +11,6 @@ COPY etl/process_data.py .
 # Incluye el CSV dentro de la imagen (Render no tiene volumes)
 COPY data/bank.csv /data/bank.csv
 
-CMD ["python", "process_data.py"]
+COPY etl/app.py .
+
+CMD ["python", "app.py"]
