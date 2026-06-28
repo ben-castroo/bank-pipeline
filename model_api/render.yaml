@@ -1,0 +1,26 @@
+# Blueprint de Render para el servicio de predicción.
+# Colocar en la RAÍZ del repo (o desplegar manualmente como Web Service Docker
+# apuntando rootDir=model_api). Las variables marcadas sync:false se cargan a
+# mano en el dashboard de Render (son secretos).
+
+services:
+  - type: web
+    name: bank-model-api
+    runtime: docker
+    rootDir: model_api
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: SUPABASE_DB_URL
+        sync: false
+      - key: SUPABASE_PROJECT_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: API_KEY
+        sync: false
+      - key: DEFAULT_THRESHOLD
+        value: "0.5"
+      - key: RETRAIN_SAMPLE_SIZE
+        value: "5000"

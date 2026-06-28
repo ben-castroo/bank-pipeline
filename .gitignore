@@ -8,4 +8,5 @@ data/bank_dirty.csv
 
 # Datos reales (no versionar datasets grandes)
 data/bank.csv
+data/bank_clean_local.csv
 
