@@ -10,9 +10,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiamos ambos módulos preservando su estructura (no se aplanan)
+# Copiamos todos los módulos preservando su estructura (no se aplanan)
 COPY etl/ ./etl/
 COPY model_api/ ./model_api/
+COPY bi_api/ ./bi_api/
 COPY wsgi.py .
 
 ENV PORT=8000
