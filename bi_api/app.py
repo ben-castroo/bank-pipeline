@@ -6,7 +6,7 @@ datos agregados (sin PII), pensado para que se abra sin login en la demo.
 """
 import os
 
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, send_file
 from sqlalchemy import create_engine, text
 
 app = Flask(__name__, template_folder="templates")
@@ -34,9 +34,20 @@ def _rows(sql, **params):
         return [dict(r) for r in cx.execute(text(sql), params).mappings().all()]
 
 
+NOTEBOOK_HTML = os.path.join(os.path.dirname(__file__), "static", "notebook.html")
+
+
 @app.get("/")
 def home():
     return render_template("bi.html")
+
+
+@app.get("/notebook")
+def notebook():
+    if not os.path.exists(NOTEBOOK_HTML):
+        return ("<p>El HTML del notebook no está generado todavía. "
+                "Corre <code>python scripts/build_notebook_html.py</code>.</p>", 404)
+    return send_file(NOTEBOOK_HTML)
 
 
 @app.get("/data/summary")
