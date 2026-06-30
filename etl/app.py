@@ -274,10 +274,10 @@ def truncate_tables():
         try:
             with supa_engine.begin() as conn:
                 conn.execute(text(
-                    "TRUNCATE TABLE bank_clean RESTART IDENTITY CASCADE"
+                    "TRUNCATE TABLE bank_clean, model_scores, retrain_jobs RESTART IDENTITY CASCADE"
                 ))
             results["supabase"] = "ok"
-            log.warning("Tabla bank_clean vaciada en Supabase")
+            log.warning("Tablas vaciadas en Supabase: bank_clean, model_scores, retrain_jobs")
         except Exception as exc:
             results["supabase"] = str(exc)
             log.error("Error al vaciar tabla en Supabase: %s", exc)
