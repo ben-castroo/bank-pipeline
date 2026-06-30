@@ -151,6 +151,39 @@ def predict_batch():
     })
 
 
+@app.get("/predict/pending/count")
+@require_api_key
+def predict_pending_count():
+    return jsonify({"pending": db.count_pending()})
+
+
+@app.post("/predict/pending")
+@require_api_key
+def predict_pending():
+    if not model_holder.loaded:
+        return jsonify({"error": "Modelo no disponible todavía"}), 503
+    payload = request.get_json(silent=True) or {}
+    try:
+        threshold = _resolve_threshold(payload)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    limit = payload.get("limit", 2000)
+    try:
+        limit = int(limit)
+    except (TypeError, ValueError):
+        return jsonify({"error": "limit debe ser entero"}), 400
+
+    ids = db.fetch_pending_ids(limit)
+    if not ids:
+        return jsonify({"scored": 0, "remaining": 0, "threshold": threshold})
+    results, _ = _score_ids(ids, threshold)
+    return jsonify({
+        "scored": len(results or []),
+        "remaining": db.count_pending(),
+        "threshold": threshold,
+    })
+
+
 @app.post("/retrain")
 @require_api_key
 def retrain():

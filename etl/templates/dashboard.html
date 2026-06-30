@@ -199,6 +199,55 @@
       </div>
       <div id="pred-result" class="pred-result mt-2 text-sm"></div>
     </div>
+
+    <!-- Panel de control del modelo -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+      <h2 class="font-semibold text-slate-700 mb-4">Panel de control del modelo</h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+        <!-- B.1 Métricas -->
+        <div class="border border-slate-100 rounded-xl p-4 bg-slate-50">
+          <h3 class="text-sm font-semibold text-slate-600 mb-3">Métricas del modelo activo</h3>
+          <button type="button" onclick="verMetricas()"
+            class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg shadow transition">
+            Ver métricas
+          </button>
+          <div id="metrics-box" class="mt-3 text-xs text-slate-500"></div>
+        </div>
+
+        <!-- B.2 Predecir pendientes -->
+        <div class="border border-slate-100 rounded-xl p-4 bg-slate-50">
+          <h3 class="text-sm font-semibold text-slate-600 mb-1">Predicciones masivas</h3>
+          <p id="pending-count" class="text-xs text-slate-400 mb-3">—</p>
+          <label class="flex flex-col text-sm gap-1 mb-3">
+            Umbral
+            <input type="number" id="pending-threshold" min="0" max="1" step="0.05" value="0.5"
+              class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 w-24 bg-white">
+          </label>
+          <button type="button" onclick="predecirPendientes()"
+            class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg shadow transition">
+            Predecir pendientes
+          </button>
+          <div id="pending-box" class="mt-3 text-xs"></div>
+        </div>
+
+        <!-- B.3 Reentrenar -->
+        <div class="border border-slate-100 rounded-xl p-4 bg-slate-50">
+          <h3 class="text-sm font-semibold text-slate-600 mb-3">Reentrenamiento</h3>
+          <label class="flex flex-col text-sm gap-1 mb-3">
+            Muestra (filas)
+            <input type="number" id="retrain-sample" min="500" value="5000"
+              class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 w-28 bg-white">
+          </label>
+          <button type="button" onclick="reentrenar()"
+            class="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg shadow transition">
+            Reentrenar
+          </button>
+          <div id="retrain-box" class="mt-3 text-xs"></div>
+        </div>
+
+      </div>
+    </div>
   </div>
 
   <style>
@@ -207,6 +256,9 @@
     .pred-result .err { color:#b00020; }
     .model-status.ok { color:#137333; font-weight:500; }
     .model-status.warn { color:#b06000; font-weight:500; }
+    .metrics-table { width:100%; border-collapse:collapse; margin-top:6px; }
+    .metrics-table td { padding:3px 8px; border-bottom:1px solid #e2e8f0; }
+    .metrics-table td:first-child { color:#64748b; font-weight:500; }
   </style>
 
   <script>
@@ -563,6 +615,84 @@
       setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 500); }, 3500);
     }
 
+    // ── Panel de control del modelo ──────────────────────────────────────────
+    function getKey() {
+      const k = (document.getElementById('pred-api-key')?.value || '').trim();
+      if (k) sessionStorage.setItem('modelApiKey', k);
+      return k || sessionStorage.getItem('modelApiKey') || '';
+    }
+    function authHeaders() {
+      return { 'Content-Type': 'application/json', 'X-API-Key': getKey() };
+    }
+
+    async function verMetricas() {
+      const box = document.getElementById('metrics-box');
+      box.textContent = 'Cargando…';
+      const res = await fetch('/model/model-info', { headers: authHeaders() });
+      const data = await res.json();
+      if (!res.ok) { box.innerHTML = `<span class="err">${data.error||'Error'} (HTTP ${res.status})</span>`; return; }
+      const m = data.metrics || {};
+      const filas = Object.entries(m)
+        .map(([k,v]) => `<tr><td>${esc(k)}</td><td>${typeof v==='number'? v.toFixed(4): esc(String(v))}</td></tr>`).join('');
+      box.innerHTML = `<p>${esc(data.algorithm)} · versión <strong>${esc(data.model_version)}</strong></p>
+                       <table class="metrics-table">${filas}</table>`;
+    }
+
+    async function contarPendientes() {
+      const res = await fetch('/model/predict/pending/count', { headers: authHeaders() });
+      const data = await res.json();
+      document.getElementById('pending-count').textContent =
+        res.ok ? `${data.pending} registros sin puntuar` : `(${data.error||'error'})`;
+    }
+
+    async function predecirPendientes() {
+      const box = document.getElementById('pending-box');
+      const thr = parseFloat(document.getElementById('pending-threshold').value) || 0.5;
+      let total = 0, remaining = Infinity;
+      box.textContent = 'Procesando…';
+      while (remaining > 0) {
+        const res = await fetch('/model/predict/pending', {
+          method: 'POST', headers: authHeaders(),
+          body: JSON.stringify({ threshold: thr, limit: 2000 })
+        });
+        const data = await res.json();
+        if (!res.ok) { box.innerHTML = `<span class="err">${data.error||'Error'} (HTTP ${res.status})</span>`; return; }
+        total += data.scored; remaining = data.remaining;
+        box.textContent = `Puntuados: ${total} · pendientes: ${remaining}`;
+        if (data.scored === 0) break;
+      }
+      box.textContent = `Listo. Puntuados en total: ${total} · pendientes: ${remaining}`;
+      contarPendientes();
+    }
+
+    async function reentrenar() {
+      const box = document.getElementById('retrain-box');
+      const sample = parseInt(document.getElementById('retrain-sample').value, 10) || 5000;
+      box.textContent = 'Lanzando reentrenamiento…';
+      const res = await fetch('/model/retrain', {
+        method: 'POST', headers: authHeaders(), body: JSON.stringify({ sample_size: sample })
+      });
+      const data = await res.json();
+      if (!res.ok) { box.innerHTML = `<span class="err">${data.error||'Error'} (HTTP ${res.status})</span>`; return; }
+      pollJob(data.job_id, box);
+    }
+
+    async function pollJob(jobId, box) {
+      const res = await fetch(`/model/retrain/status/${jobId}`, { headers: authHeaders() });
+      const job = await res.json();
+      if (job.status === 'running') {
+        box.textContent = `Reentrenando (job ${jobId})…`;
+        setTimeout(() => pollJob(jobId, box), 2000);
+      } else if (job.status === 'done') {
+        const m = job.metrics || {};
+        box.innerHTML = `<div class="pred-ok">Listo. Nueva versión <strong>${esc(job.model_version)}</strong>.
+          AUC: ${m.roc_auc??'-'} · F1: ${m.f1??'-'} · recall: ${m.recall??'-'}</div>`;
+        verMetricas(); refreshModelStatus();
+      } else {
+        box.innerHTML = `<span class="err">Reentrenamiento fallido: ${esc(job.error||'desconocido')}</span>`;
+      }
+    }
+
     // ── Predicción del modelo ────────────────────────────────────────────────
     const KEY_STORE = 'modelApiKey';
 
@@ -628,6 +758,7 @@
     loadCurrentFile();
     startLiveRefresh();
     refreshModelStatus();
+    contarPendientes();
     const _savedKey = sessionStorage.getItem(KEY_STORE);
     if (_savedKey) document.getElementById('pred-api-key').value = _savedKey;
 

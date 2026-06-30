@@ -124,3 +124,28 @@ def get_metrics_for_version(version: str) -> dict | None:
     with engine.connect() as conn:
         row = conn.execute(stmt, {"ver": version}).first()
         return row[0] if row else None
+
+
+# --- Registros pendientes de puntuar ----------------------------------------
+def count_pending() -> int:
+    sql = text(
+        f"SELECT COUNT(*) AS n FROM {config.BANK_CLEAN_TABLE} bc "
+        f"LEFT JOIN {config.MODEL_SCORES_TABLE} ms "
+        f"ON ms.raw_id = bc.{config.CLEAN_ID_COLUMN} "
+        f"WHERE ms.raw_id IS NULL"
+    )
+    with engine.connect() as conn:
+        return int(conn.execute(sql).scalar() or 0)
+
+
+def fetch_pending_ids(limit: int | None = None) -> list:
+    sql = (
+        f"SELECT bc.{config.CLEAN_ID_COLUMN} AS id FROM {config.BANK_CLEAN_TABLE} bc "
+        f"LEFT JOIN {config.MODEL_SCORES_TABLE} ms "
+        f"ON ms.raw_id = bc.{config.CLEAN_ID_COLUMN} "
+        f"WHERE ms.raw_id IS NULL ORDER BY bc.{config.CLEAN_ID_COLUMN}"
+    )
+    if limit:
+        sql += f" LIMIT {int(limit)}"
+    df = pd.read_sql(text(sql), engine)
+    return df["id"].tolist()
