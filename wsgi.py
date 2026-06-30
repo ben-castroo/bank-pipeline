@@ -1,10 +1,11 @@
-"""Entrypoint combinado: ETL (dashboard) + API del modelo en UN solo web service.
+"""Entrypoint combinado: ETL (dashboard) + API del modelo + BI en UN solo web service.
 
-Render sirve un único proceso en un único puerto, así que montamos las dos
+Render sirve un único proceso en un único puerto, así que montamos tres
 apps Flask con DispatcherMiddleware:
 
     /            -> dashboard del ETL  (/, /health, /run, /upload, /data/*, ...)
     /model/...   -> API del modelo     (/model/predict, /model/retrain, ...)
+    /bi          -> dashboard de BI    (lee vistas de Supabase, sin auth)
 
 El ETL queda intacto: usa imports planos (from db import ...), así que añadimos
 su carpeta al path y lo importamos tal cual. La API del modelo es un paquete
@@ -23,8 +24,14 @@ etl_app = _etl_module.app
 # --- API del modelo (paquete con imports relativos) --------------------------
 from model_api.app import app as model_app   # noqa: E402
 
+# --- BI (lee vistas de Supabase, sin auth) ------------------------------------
+from bi_api.app import app as bi_app         # noqa: E402
+
 # --- App combinada -----------------------------------------------------------
-application = DispatcherMiddleware(etl_app, {"/model": model_app})
+application = DispatcherMiddleware(etl_app, {
+    "/model": model_app,
+    "/bi": bi_app,
+})
 
 
 if __name__ == "__main__":

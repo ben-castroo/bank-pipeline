@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bank Pipeline · BI</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans min-h-screen">
+  <div class="max-w-7xl mx-auto px-4 py-8 space-y-6">
+
+    <!-- Header -->
+    <div class="flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-bold text-slate-900">Dashboard BI &middot; Predicción de depósitos</h1>
+        <p id="status" class="text-sm text-slate-400 mt-0.5">Cargando…</p>
+      </div>
+    </div>
+
+    <!-- Scorecards -->
+    <div id="cards" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3"></div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <h2 class="font-semibold text-slate-700 mb-3">Matriz de confusión</h2>
+        <div id="confusion"></div>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <h2 class="font-semibold text-slate-700 mb-3">Comparación de modelos (F1 / AUC)</h2>
+        <canvas id="chartCompare"></canvas>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <h2 class="font-semibold text-slate-700 mb-3">Balance del target</h2>
+        <canvas id="chartBalance"></canvas>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <h2 class="font-semibold text-slate-700 mb-3">Tasa de suscripción por oficio</h2>
+        <canvas id="chartJob"></canvas>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <h2 class="font-semibold text-slate-700 mb-3">Tasa por educación</h2>
+        <canvas id="chartEdu"></canvas>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        <h2 class="font-semibold text-slate-700 mb-3">Distribución de probabilidades (model_scores)</h2>
+        <canvas id="chartScore"></canvas>
+      </div>
+    </div>
+
+  </div>
+
+<script>
+const PCT = ['accuracy', 'precision', 'recall', 'f1', 'roc_auc', 'gini'];
+
+function card(label, val) {
+  return `<div class="bg-white rounded-xl shadow-sm border border-slate-200 p-3 text-center">
+    <div class="text-xs text-slate-400 uppercase">${label}</div>
+    <div class="text-xl font-bold text-slate-900">${val}</div>
+  </div>`;
+}
+
+async function load() {
+  const st = document.getElementById('status');
+  let d;
+  try {
+    d = await fetch('/bi/data/summary').then(r => r.json());
+  } catch (e) {
+    st.textContent = 'No se pudo cargar.';
+    return;
+  }
+  if (d.error || !d.metrics || !d.metrics.run_id) {
+    st.textContent = d.error
+      ? `Error: ${d.error}`
+      : 'Sin métricas. Corre ml/load_metrics_to_db.py para poblar model_metrics.';
+    return;
+  }
+  st.textContent = `Modelo ${d.metrics.model_name} · ${d.metrics.n_test} casos de test`;
+
+  // scorecards
+  document.getElementById('cards').innerHTML =
+    PCT.map(k => card(k, Number(d.metrics[k]).toFixed(4))).join('');
+
+  // matriz de confusión (2x2)
+  const cm = {};
+  d.confusion.forEach(c => cm[`${c.actual}_${c.predicted}`] = c.n);
+  document.getElementById('confusion').innerHTML = `
+    <table class="text-sm w-full text-center">
+      <tr><td></td><th>Pred NO</th><th>Pred SÍ</th></tr>
+      <tr><th>Real NO</th><td class="bg-green-50">${cm['no_no'] ?? 0}</td><td class="bg-red-50">${cm['no_si'] ?? 0}</td></tr>
+      <tr><th>Real SÍ</th><td class="bg-red-50">${cm['si_no'] ?? 0}</td><td class="bg-green-50">${cm['si_si'] ?? 0}</td></tr>
+    </table>`;
+
+  const bar = (id, labels, data, label) => new Chart(document.getElementById(id), {
+    type: 'bar',
+    data: { labels, datasets: [{ label, data: data.map(Number) }] },
+    options: { plugins: { legend: { display: false } }, responsive: true }
+  });
+
+  new Chart(document.getElementById('chartCompare'), {
+    type: 'bar',
+    data: {
+      labels: d.comparison.map(c => c.model_name),
+      datasets: [
+        { label: 'F1', data: d.comparison.map(c => Number(c.f1)) },
+        { label: 'AUC', data: d.comparison.map(c => Number(c.roc_auc)) },
+      ]
+    }
+  });
+
+  new Chart(document.getElementById('chartBalance'), {
+    type: 'doughnut',
+    data: {
+      labels: d.target_balance.map(t => t.deposit ? 'Sí' : 'No'),
+      datasets: [{ data: d.target_balance.map(t => t.n) }]
+    }
+  });
+
+  bar('chartJob', d.rate_by_job.map(r => r.job), d.rate_by_job.map(r => r.tasa_pct), 'Tasa %');
+  bar('chartEdu', d.rate_by_education.map(r => r.education), d.rate_by_education.map(r => r.tasa_pct), 'Tasa %');
+  bar('chartScore', d.score_distribution.map(s => s.bucket), d.score_distribution.map(s => s.n), 'n');
+}
+load();
+</script>
+</body>
+</html>
