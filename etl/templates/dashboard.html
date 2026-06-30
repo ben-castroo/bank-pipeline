@@ -171,7 +171,43 @@
       </div>
 
     </div>
+
+    <!-- Predicción del modelo -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+      <h2 class="font-semibold text-slate-700 mb-3">Predicción del modelo</h2>
+      <p id="model-status" class="model-status text-sm mb-2">Comprobando modelo…</p>
+      <div class="pred-form">
+        <label class="flex flex-col text-sm gap-1">
+          raw_id
+          <input type="number" id="pred-raw-id" min="1" placeholder="ej: 1"
+            class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+        </label>
+        <label class="flex flex-col text-sm gap-1">
+          Umbral
+          <input type="number" id="pred-threshold" min="0" max="1" step="0.05" value="0.5"
+            class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 w-24">
+        </label>
+        <label class="flex flex-col text-sm gap-1">
+          API Key
+          <input type="password" id="pred-api-key" placeholder="X-API-Key"
+            class="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300">
+        </label>
+        <button type="button" id="pred-btn" onclick="predecir()"
+          class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg shadow transition self-end">
+          Predecir
+        </button>
+      </div>
+      <div id="pred-result" class="pred-result mt-2 text-sm"></div>
+    </div>
   </div>
+
+  <style>
+    .pred-form { display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin:12px 0; }
+    .pred-result .pred-ok { padding:10px; border-radius:8px; background:#eef9f0; }
+    .pred-result .err { color:#b00020; }
+    .model-status.ok { color:#137333; font-weight:500; }
+    .model-status.warn { color:#b06000; font-weight:500; }
+  </style>
 
   <script>
     let currentTab = 'raw';
@@ -527,6 +563,63 @@
       setTimeout(() => { t.style.opacity = '0'; setTimeout(() => t.remove(), 500); }, 3500);
     }
 
+    // ── Predicción del modelo ────────────────────────────────────────────────
+    const KEY_STORE = 'modelApiKey';
+
+    async function refreshModelStatus() {
+      const el = document.getElementById('model-status');
+      try {
+        const h = await fetch('/model/health').then(r => r.json());
+        el.textContent = h.model_loaded
+          ? `Modelo cargado (versión: ${h.model_version})`
+          : 'Modelo no disponible todavía';
+        el.className = 'model-status text-sm mb-2 ' + (h.model_loaded ? 'ok' : 'warn');
+      } catch {
+        el.textContent = 'No se pudo contactar al servicio del modelo';
+        el.className = 'model-status text-sm mb-2 warn';
+      }
+    }
+
+    async function predecir() {
+      const out   = document.getElementById('pred-result');
+      const rawId = parseInt(document.getElementById('pred-raw-id').value, 10);
+      const thr   = parseFloat(document.getElementById('pred-threshold').value);
+      const key   = document.getElementById('pred-api-key').value.trim();
+
+      if (!rawId) { out.innerHTML = '<span class="err">Ingresa un raw_id válido.</span>'; return; }
+      if (!key)   { out.innerHTML = '<span class="err">Ingresa la API Key.</span>'; return; }
+      sessionStorage.setItem(KEY_STORE, key);
+
+      out.textContent = 'Prediciendo…';
+      try {
+        const res = await fetch('/model/predict', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-API-Key': key },
+          body: JSON.stringify({ raw_id: rawId, threshold: thr })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          const msg = { 401: 'API Key incorrecta',
+                        404: 'raw_id no existe en bank_clean',
+                        503: 'El modelo aún no está disponible' }[res.status]
+                      || data.error || 'Error';
+          out.innerHTML = `<span class="err">${msg} (HTTP ${res.status})</span>`;
+          return;
+        }
+        const pct = (data.prob_deposit * 100).toFixed(1);
+        const etiqueta = data.pred_deposit ? 'SÍ suscribiría' : 'NO suscribiría';
+        out.innerHTML = `
+          <div class="pred-ok">
+            <strong>raw_id ${data.raw_id}</strong> →
+            probabilidad de depósito: <strong>${pct}%</strong> ·
+            decisión (umbral ${data.threshold}): <strong>${etiqueta}</strong>
+            <br><small>modelo: ${data.model_version}</small>
+          </div>`;
+      } catch (e) {
+        out.innerHTML = `<span class="err">Fallo de red: ${e.message}</span>`;
+      }
+    }
+
     // ── Init ─────────────────────────────────────────────────────────────────
     loadStatus();
     loadReport();
@@ -534,6 +627,9 @@
     loadTable('raw');
     loadCurrentFile();
     startLiveRefresh();
+    refreshModelStatus();
+    const _savedKey = sessionStorage.getItem(KEY_STORE);
+    if (_savedKey) document.getElementById('pred-api-key').value = _savedKey;
 
     // ── Upload ───────────────────────────────────────────────────────────────
     let _pendingFile = null;
