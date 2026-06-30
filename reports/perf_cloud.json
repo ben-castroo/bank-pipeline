@@ -1,0 +1,10 @@
+{
+  "render_url": "https://TU-SERVICIO.onrender.com",
+  "cold_start_s": 0.0,
+  "warm_health_s": {
+    "values": [0.0, 0.0, 0.0, 0.0, 0.0],
+    "mean_s": 0.0
+  },
+  "predict_s": 0.0,
+  "notes": "PENDIENTE: ejecutar scripts/measure_cloud.sh con RENDER_URL y MODEL_API_KEY configurados. Reemplazar los 0.0 con los valores reales obtenidos."
+}
