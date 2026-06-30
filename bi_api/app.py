@@ -19,9 +19,12 @@ _engine = None
 def get_engine():
     global _engine
     if _engine is None:
-        url = os.getenv("SUPABASE_DB_URL")
+        url = os.getenv("SUPABASE_DB_URL") or os.getenv("SUPABASE_URL")
         if not url:
-            raise RuntimeError("SUPABASE_DB_URL no definida")
+            raise RuntimeError("SUPABASE_DB_URL (o SUPABASE_URL) no definida")
+        url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+        if "sslmode" not in url:
+            url += "?sslmode=require"
         _engine = create_engine(url, pool_pre_ping=True)
     return _engine
 
